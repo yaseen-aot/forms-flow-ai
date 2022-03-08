@@ -15,7 +15,7 @@
           </camunda:field>
         </camunda:executionListener>
         <camunda:executionListener class="org.camunda.bpm.extension.hooks.listeners.ApplicationStateListener" event="take" />
-        <camunda:executionListener class="org.camunda.bpm.extension.hooks.listeners.CustomFormBPMDataPipelineListener" event="take" />
+        <camunda:executionListener class="org.camunda.bpm.extension.hooks.listeners.FormBPMDataPipelineListener" event="take" />
       </bpmn:extensionElements>
     </bpmn:sequenceFlow>
     <bpmn:endEvent id="Event_0bjy5t7" name="End">
