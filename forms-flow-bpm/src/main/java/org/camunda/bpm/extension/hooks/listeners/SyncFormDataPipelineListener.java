@@ -72,7 +72,7 @@ public class SyncFormDataPipelineListener extends BaseListener implements TaskLi
 	}
 
 	private String invokeSyncApplicationService(DelegateExecution execution) throws IOException {
-//		String url = "http://host.docker.internal:5001/api/v1/sync-form-data";
+//		String url = "https://eao-reports.apps.devops.aot-technologies.com/api/v1/sync-form-data";
 		Object dataJson = prepareSyncData(execution);
 		String payload = dataJson != null ? new ObjectMapper().writeValueAsString(dataJson) : null;
 		payload = (dataJson == null) ? new JsonObject().toString() : payload;
@@ -118,9 +118,18 @@ public class SyncFormDataPipelineListener extends BaseListener implements TaskLi
 				: null;
 		for (String entry : injectableFields) {
 			JsonNode data = new ObjectMapper().readTree(invokeSyncApplicationService(execution));
-			JsonNode entryValue = data.get(entry).findValue("id");
-			elements.add(new CustomFormElement(entry, String.valueOf(entryValue)));
+			JsonNode jsonData = data.get(entry);
+			if (jsonData.isArray()) {
+				for (int i = 0; i < jsonData.size(); i++) {
+					JsonNode elementValue = jsonData.get(i).get("id");
+					elements.add(new CustomFormElement(entry + "/" + i, String.valueOf(elementValue)));
+				}
+			} else {
+				JsonNode elementValue = jsonData.findValue("id");
+				elements.add(new CustomFormElement(entry, String.valueOf(elementValue)));
+			}
 		}
+		LOGGER.info("Patch Elements : " + elements);
 		return elements;
 	}
 
