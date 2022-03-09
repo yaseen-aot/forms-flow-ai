@@ -2,6 +2,7 @@ package org.camunda.bpm.extension.hooks.listeners;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.List;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -13,7 +14,6 @@ import org.apache.commons.lang.StringUtils;
 import org.camunda.bpm.engine.delegate.DelegateExecution;
 import org.camunda.bpm.engine.delegate.DelegateTask;
 import org.camunda.bpm.engine.delegate.ExecutionListener;
-import org.camunda.bpm.engine.delegate.Expression;
 import org.camunda.bpm.engine.delegate.TaskListener;
 import org.camunda.bpm.extension.commons.connector.HTTPServiceInvoker;
 import org.camunda.bpm.extension.hooks.exceptions.FormioServiceException;
@@ -39,9 +39,8 @@ import reactor.core.publisher.Mono;
  */
 @Named("SyncFormDataPipelineListener")
 public class SyncFormDataPipelineListener extends BaseListener implements TaskListener, ExecutionListener {
-	private Logger LOGGER = Logger.getLogger(SyncFormDataPipelineListener.class.getName());
 
-	private Expression fields;
+	private Logger LOGGER = Logger.getLogger(SyncFormDataPipelineListener.class.getName());
 
 	@Autowired
 	private HTTPServiceInvoker httpServiceInvoker;
@@ -111,14 +110,13 @@ public class SyncFormDataPipelineListener extends BaseListener implements TaskLi
 
 	private List<CustomFormElement> getModifiedCustomFormElements(DelegateExecution execution) throws IOException {
 		List<CustomFormElement> elements = new ArrayList<>();
-		ObjectMapper objectMapper = new ObjectMapper();
-		List<String> injectableFields = this.fields != null && this.fields.getValue(execution) != null
-				? objectMapper.readValue(String.valueOf(this.fields.getValue(execution)), List.class)
-				: null;
-		for (String entry : injectableFields) {
-			JsonNode data = new ObjectMapper().readTree(invokeSyncApplicationService(execution));
+		List<String> keys = new ArrayList<>();
+		JsonNode data = new ObjectMapper().readTree(invokeSyncApplicationService(execution));
+		Iterator<String> iterator = data.fieldNames();
+		iterator.forEachRemaining(e -> keys.add(e));
+		for (String entry : keys) {
 			JsonNode jsonData = data.get(entry);
-			if (jsonData.isArray()) {
+			if (jsonData != null && jsonData.isArray()) {
 				for (int i = 0; i < jsonData.size(); i++) {
 					JsonNode elementValue = jsonData.get(i).get("id");
 					elements.add(new CustomFormElement(entry + "/" + i, String.valueOf(elementValue)));
