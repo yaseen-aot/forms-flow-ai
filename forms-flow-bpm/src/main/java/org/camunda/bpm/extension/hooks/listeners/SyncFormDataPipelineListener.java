@@ -72,7 +72,6 @@ public class SyncFormDataPipelineListener extends BaseListener implements TaskLi
 	}
 
 	private String invokeSyncApplicationService(DelegateExecution execution) throws IOException {
-//		String url = "https://eao-reports.apps.devops.aot-technologies.com/api/v1/sync-form-data";
 		Object dataJson = prepareSyncData(execution);
 		String payload = dataJson != null ? new ObjectMapper().writeValueAsString(dataJson) : null;
 		payload = (dataJson == null) ? new JsonObject().toString() : payload;
