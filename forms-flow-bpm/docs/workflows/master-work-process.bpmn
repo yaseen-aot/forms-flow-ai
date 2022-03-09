@@ -224,7 +224,7 @@ execution.setVariable("workTitle", workTitle);</camunda:script>
       <bpmn:extensionElements>
         <camunda:executionListener class="org.camunda.bpm.extension.hooks.listeners.SyncFormDataPipelineListener" event="start">
           <camunda:field name="fields">
-            <camunda:expression>["works"]</camunda:expression>
+            <camunda:expression>["works", "works-work_phases", "works-events", "works-issues", "works-staff_work_roles", "works-indigenous_works"]</camunda:expression>
           </camunda:field>
         </camunda:executionListener>
       </bpmn:extensionElements>
