@@ -37,11 +37,7 @@ execution.setVariable("project", project);
     </bpmn:userTask>
     <bpmn:task id="Activity_1rhrrrq" name="Report API">
       <bpmn:extensionElements>
-        <camunda:executionListener class="org.camunda.bpm.extension.hooks.listeners.SyncFormDataPipelineListener" event="start">
-          <camunda:field name="fields">
-            <camunda:expression>["projects"]</camunda:expression>
-          </camunda:field>
-        </camunda:executionListener>
+        <camunda:executionListener class="org.camunda.bpm.extension.hooks.listeners.SyncFormDataPipelineListener" event="start" />
       </bpmn:extensionElements>
       <bpmn:incoming>Flow_02m6tkf</bpmn:incoming>
       <bpmn:outgoing>Flow_0m7totu</bpmn:outgoing>

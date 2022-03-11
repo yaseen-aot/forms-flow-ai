@@ -222,11 +222,7 @@ execution.setVariable("workTitle", workTitle);</camunda:script>
     <bpmn:sequenceFlow id="Flow_090jx0u" sourceRef="Activity_0qfshy1" targetRef="Event_0lm2v14" />
     <bpmn:task id="Activity_0s2ms94" name="Sync Data">
       <bpmn:extensionElements>
-        <camunda:executionListener class="org.camunda.bpm.extension.hooks.listeners.SyncFormDataPipelineListener" event="start">
-          <camunda:field name="fields">
-            <camunda:expression>["works", "works-work_phases", "works-events", "works-issues", "works-staff_work_roles", "works-indigenous_works"]</camunda:expression>
-          </camunda:field>
-        </camunda:executionListener>
+        <camunda:executionListener class="org.camunda.bpm.extension.hooks.listeners.SyncFormDataPipelineListener" event="start" />
       </bpmn:extensionElements>
       <bpmn:incoming>Flow_1rridu9</bpmn:incoming>
       <bpmn:outgoing>Flow_10qxtdj</bpmn:outgoing>

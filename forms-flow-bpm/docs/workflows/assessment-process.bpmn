@@ -65,27 +65,40 @@ task.execution.setVariable('deleteReason', "completed");</camunda:script>
     </bpmn:sequenceFlow>
     <bpmn:sequenceFlow id="Flow_0tbksvg" sourceRef="Activity_0jpvspx" targetRef="Event_02tgcfx" />
     <bpmn:sequenceFlow id="Flow_0ihjyop" sourceRef="Activity_18o8b8i" targetRef="Gateway_1ykufab">
-      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${currentphase == 1}</bpmn:conditionExpression>
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${action == 1}</bpmn:conditionExpression>
     </bpmn:sequenceFlow>
     <bpmn:sequenceFlow id="Flow_06o9xhy" sourceRef="Activity_1rrw1ui" targetRef="Gateway_0phq651">
-      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${currentphase == 1}</bpmn:conditionExpression>
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${action == 1}</bpmn:conditionExpression>
     </bpmn:sequenceFlow>
     <bpmn:sequenceFlow id="Flow_12i1l4g" sourceRef="Activity_0dapu3s" targetRef="Gateway_1l21rp7" />
     <bpmn:sequenceFlow id="Flow_0sdgg5k" sourceRef="Activity_1mwcacs" targetRef="Activity_0dapu3s">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${action == 1}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_0pksl9g" sourceRef="Gateway_0igl8mz" targetRef="Activity_1mwcacs">
       <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${currentphase == 1}</bpmn:conditionExpression>
     </bpmn:sequenceFlow>
-    <bpmn:sequenceFlow id="Flow_0pksl9g" sourceRef="Gateway_0igl8mz" targetRef="Activity_1mwcacs" />
     <bpmn:sequenceFlow id="Flow_1q09bmj" sourceRef="Activity_0l9smge" targetRef="Gateway_0igl8mz" />
     <bpmn:sequenceFlow id="Flow_1y8nu22" sourceRef="Activity_0tz7odl" targetRef="Gateway_1ggk8e8">
-      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${currentphase == 1}</bpmn:conditionExpression>
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${action == 1}</bpmn:conditionExpression>
     </bpmn:sequenceFlow>
     <bpmn:sequenceFlow id="Flow_1gnqz9t" sourceRef="Activity_17f7mte" targetRef="Activity_0tz7odl">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${action == 1}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_0w563e9" sourceRef="Gateway_0j55fhh" targetRef="Activity_17f7mte">
       <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${currentphase == 1}</bpmn:conditionExpression>
     </bpmn:sequenceFlow>
-    <bpmn:sequenceFlow id="Flow_0w563e9" sourceRef="Gateway_0j55fhh" targetRef="Activity_17f7mte" />
     <bpmn:sequenceFlow id="Flow_1ocywhk" sourceRef="Activity_1ijipih" targetRef="Gateway_0j55fhh" />
     <bpmn:sequenceFlow id="Flow_1nu0fsx" sourceRef="Activity_1cxdn4p" targetRef="Activity_1ijipih">
-      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${currentphase == 1}</bpmn:conditionExpression>
+      <bpmn:extensionElements>
+        <camunda:executionListener class="org.camunda.bpm.extension.hooks.listeners.FormSubmissionListener" event="take" />
+        <camunda:executionListener class="org.camunda.bpm.extension.hooks.listeners.ApplicationStateListener" event="take" />
+        <camunda:executionListener class="org.camunda.bpm.extension.hooks.listeners.BPMFormDataPipelineListener" event="take">
+          <camunda:field name="fields">
+            <camunda:expression>["applicationId", "applicationStatus"]</camunda:expression>
+          </camunda:field>
+        </camunda:executionListener>
+      </bpmn:extensionElements>
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${action == 1}</bpmn:conditionExpression>
     </bpmn:sequenceFlow>
     <bpmn:sequenceFlow id="Flow_1g2dh63" sourceRef="Event_08in3hw" targetRef="Activity_1cxdn4p" />
     <bpmn:sequenceFlow id="Flow_0l4n3zy" name="Withdraw" sourceRef="Gateway_0j55fhh" targetRef="Event_0qvxfzb">
@@ -94,14 +107,18 @@ task.execution.setVariable('deleteReason', "completed");</camunda:script>
     <bpmn:sequenceFlow id="Flow_0n7wj3f" name="Terminate" sourceRef="Gateway_0igl8mz" targetRef="Event_0tjpgfl">
       <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${actionType==Terminated}</bpmn:conditionExpression>
     </bpmn:sequenceFlow>
-    <bpmn:sequenceFlow id="Flow_04jd2c3" sourceRef="Gateway_1l21rp7" targetRef="Activity_1rrw1ui" />
+    <bpmn:sequenceFlow id="Flow_04jd2c3" sourceRef="Gateway_1l21rp7" targetRef="Activity_1rrw1ui">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${currentphase == 1}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
     <bpmn:sequenceFlow id="Flow_0hqkwc7" name="Terminate" sourceRef="Gateway_1l21rp7" targetRef="Event_1376o6f">
       <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${actionType==Terminated}</bpmn:conditionExpression>
     </bpmn:sequenceFlow>
     <bpmn:sequenceFlow id="Flow_0gx0qtn" name="Withdraw" sourceRef="Gateway_1l21rp7" targetRef="Event_1c016tw">
       <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${actionType==withdrawn}</bpmn:conditionExpression>
     </bpmn:sequenceFlow>
-    <bpmn:sequenceFlow id="Flow_1ydeeeo" sourceRef="Gateway_1ggk8e8" targetRef="Activity_0l9smge" />
+    <bpmn:sequenceFlow id="Flow_1ydeeeo" sourceRef="Gateway_1ggk8e8" targetRef="Activity_0l9smge">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${currentphase == 1}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
     <bpmn:userTask id="Activity_0l9smge" name="Pre-Review Proponent Time -  (${workTitle})">
       <bpmn:incoming>Flow_1ydeeeo</bpmn:incoming>
       <bpmn:outgoing>Flow_1q09bmj</bpmn:outgoing>
@@ -123,7 +140,9 @@ task.execution.setVariable('deleteReason', "completed");</camunda:script>
     <bpmn:endEvent id="Event_1c016tw" name="Withdrawn">
       <bpmn:incoming>Flow_0gx0qtn</bpmn:incoming>
     </bpmn:endEvent>
-    <bpmn:sequenceFlow id="Flow_1ygb02x" sourceRef="Gateway_0phq651" targetRef="Activity_18o8b8i" />
+    <bpmn:sequenceFlow id="Flow_1ygb02x" sourceRef="Gateway_0phq651" targetRef="Activity_18o8b8i">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${currentphase == 1}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
     <bpmn:userTask id="Activity_18o8b8i" name="Recommendation - (${workTitle})">
       <bpmn:incoming>Flow_1ygb02x</bpmn:incoming>
       <bpmn:outgoing>Flow_0ihjyop</bpmn:outgoing>
@@ -143,7 +162,9 @@ task.execution.setVariable('deleteReason', "completed");</camunda:script>
       <bpmn:incoming>Flow_08je08k</bpmn:incoming>
       <bpmn:outgoing>Flow_0tbksvg</bpmn:outgoing>
     </bpmn:userTask>
-    <bpmn:sequenceFlow id="Flow_08je08k" sourceRef="Gateway_1ykufab" targetRef="Activity_0jpvspx" />
+    <bpmn:sequenceFlow id="Flow_08je08k" sourceRef="Gateway_1ykufab" targetRef="Activity_0jpvspx">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${currentphase == 1}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
     <bpmn:exclusiveGateway id="Gateway_1ykufab" name="Action">
       <bpmn:incoming>Flow_0ihjyop</bpmn:incoming>
       <bpmn:outgoing>Flow_08je08k</bpmn:outgoing>
@@ -249,6 +270,9 @@ task.execution.setVariable('deleteReason', "completed");</camunda:script>
       <bpmndi:BPMNEdge id="Flow_1nu0fsx_di" bpmnElement="Flow_1nu0fsx">
         <di:waypoint x="410" y="200" />
         <di:waypoint x="470" y="200" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="421" y="173" width="38" height="14" />
+        </bpmndi:BPMNLabel>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Flow_1ocywhk_di" bpmnElement="Flow_1ocywhk">
         <di:waypoint x="570" y="200" />

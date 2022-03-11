@@ -17,7 +17,7 @@ import org.camunda.bpm.engine.delegate.ExecutionListener;
 import org.camunda.bpm.engine.delegate.TaskListener;
 import org.camunda.bpm.extension.commons.connector.HTTPServiceInvoker;
 import org.camunda.bpm.extension.hooks.exceptions.FormioServiceException;
-import org.camunda.bpm.extension.hooks.listeners.data.CustomFormElement;
+import org.camunda.bpm.extension.hooks.listeners.data.FormElement;
 import org.camunda.bpm.extension.hooks.services.FormSubmissionService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
@@ -108,8 +108,8 @@ public class SyncFormDataPipelineListener extends BaseListener implements TaskLi
 		}
 	}
 
-	private List<CustomFormElement> getModifiedCustomFormElements(DelegateExecution execution) throws IOException {
-		List<CustomFormElement> elements = new ArrayList<>();
+	private List<FormElement> getModifiedCustomFormElements(DelegateExecution execution) throws IOException {
+		List<FormElement> elements = new ArrayList<>();
 		List<String> keys = new ArrayList<>();
 		JsonNode data = new ObjectMapper().readTree(invokeSyncApplicationService(execution));
 		Iterator<String> iterator = data.fieldNames();
@@ -119,11 +119,11 @@ public class SyncFormDataPipelineListener extends BaseListener implements TaskLi
 			if (jsonData != null && jsonData.isArray()) {
 				for (int i = 0; i < jsonData.size(); i++) {
 					JsonNode elementValue = jsonData.get(i).get("id");
-					elements.add(new CustomFormElement(entry + "/" + i, String.valueOf(elementValue)));
+					elements.add(new FormElement(entry + "/" + i + "/id", String.valueOf(elementValue)));
 				}
 			} else {
 				JsonNode elementValue = jsonData.findValue("id");
-				elements.add(new CustomFormElement(entry, String.valueOf(elementValue)));
+				elements.add(new FormElement(entry + "/id", String.valueOf(elementValue)));
 			}
 		}
 		LOGGER.info("Patch Elements : " + elements);
