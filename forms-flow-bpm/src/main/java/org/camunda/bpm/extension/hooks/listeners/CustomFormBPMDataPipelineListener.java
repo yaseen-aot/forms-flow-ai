@@ -51,6 +51,7 @@ public class CustomFormBPMDataPipelineListener extends BaseListener implements T
 		whiteListedKeys.add("works");
 		whiteListedKeys.add("workTitle");
 		whiteListedKeys.add("work_type_id");
+		whiteListedKeys.add("actionType");
 		whiteListedKeys.add("isworkterminated");
 		Map<String, Object> dataMap = formSubmissionService
 				.retrieveFormValues(String.valueOf(execution.getVariables().get("formUrl")));
