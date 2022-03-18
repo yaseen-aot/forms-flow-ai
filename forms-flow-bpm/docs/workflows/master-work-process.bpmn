@@ -143,7 +143,7 @@ execution.setVariable("workTitle", workTitle);</camunda:script>
     <bpmn:sequenceFlow id="Flow_1rridu9" sourceRef="Event_0iydrv7" targetRef="Activity_0s2ms94">
       <bpmn:extensionElements>
         <camunda:executionListener event="take">
-          <camunda:script scriptFormat="javascript">execution.setVariable('applicationStatus', "In Progress");</camunda:script>
+          <camunda:script scriptFormat="javascript">execution.setVariable('applicationStatus', "Created");</camunda:script>
         </camunda:executionListener>
         <camunda:executionListener class="org.camunda.bpm.extension.hooks.listeners.BPMFormDataPipelineListener" event="take">
           <camunda:field name="fields">
