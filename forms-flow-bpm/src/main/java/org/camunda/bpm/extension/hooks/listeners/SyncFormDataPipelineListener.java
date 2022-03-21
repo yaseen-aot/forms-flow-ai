@@ -54,7 +54,6 @@ public class SyncFormDataPipelineListener extends BaseListener implements TaskLi
 	@Override
 	public void notify(DelegateExecution execution) {
 		try {
-			invokeSyncApplicationService(execution);
 			patchFormAttributes(execution);
 		} catch (IOException e) {
 			handleException(execution, ExceptionSource.EXECUTION, e);
