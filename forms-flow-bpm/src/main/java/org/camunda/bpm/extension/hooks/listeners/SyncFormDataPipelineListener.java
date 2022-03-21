@@ -121,7 +121,7 @@ public class SyncFormDataPipelineListener extends BaseListener implements TaskLi
 					elements.add(new FormElement(entry + "/" + i + "/id", String.valueOf(elementValue)));
 				}
 			} else {
-				JsonNode elementValue = jsonData.findValue("id");
+				JsonNode elementValue = jsonData.get("id");
 				elements.add(new FormElement(entry + "/id", String.valueOf(elementValue)));
 			}
 		}
