@@ -27,6 +27,8 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /**
+ * This is a custom class to invoke Sync API and tranforms form data into CAM variables
+ * 
  * @author Sneha Suresh
  */
 @Named("SyncFormDataPipelineListener")
