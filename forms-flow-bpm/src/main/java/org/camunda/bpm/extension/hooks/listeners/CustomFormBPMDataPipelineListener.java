@@ -14,9 +14,9 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * This Custom class transforms all the form document data into CAM variables
+ * This Custom class transforms the form document data into CAM variables
  *
- * @author sumathi.thirumani@aot-technologies.com
+ * @author Sneha Suresh
  */
 @Named("CustomFormBPMDataPipelineListener")
 public class CustomFormBPMDataPipelineListener extends BaseListener implements TaskListener, ExecutionListener {

@@ -43,9 +43,7 @@ formsflow.ai:
         maxInMemorySize: ${DATA_BUFFER_SIZE:2}
         connectionTimeout: 55000
   report:
-    url: https://eao-reports.apps.devops.aot-technologies.com/api/v1
-
-
+    url: ${REPORT_API_URL}
 
 #  session:
 #    jdbc.initialize-schema: always
