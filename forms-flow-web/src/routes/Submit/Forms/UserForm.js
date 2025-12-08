@@ -63,7 +63,10 @@ import PropTypes from "prop-types";
 import { BreadCrumbs, BreadcrumbVariant } from "@formsflow/components";
 import { navigateToFormEntries, navigateToSubmitFormsListing } from "../../../helper/routerHelper";
 import { cloneDeep } from "lodash";
-import { useParams } from "react-router-dom";
+import { useParams, useLocation } from "react-router-dom";
+import { launchSMART, fetchPatientData } from "../../../services/ehrService";
+import { mapPatientToFormio } from "../../../services/ehrMapper";
+import { getSMARTConfig, debugLog, debugError, debugWarn } from "../../../services/ehrConfig";
 
 const View = React.memo((props) => {
   const [formStatus, setFormStatus] = React.useState("");
@@ -73,9 +76,12 @@ const View = React.memo((props) => {
     (state) => state.form.form?.parentFormId
   );
   const { formId } = useParams();
+  const location = useLocation();
   const lang = useSelector((state) => state.user.lang);
   const pubSub = useSelector((state) => state.pubSub);
   const isPublic = !props.isAuthenticated;
+  const [ehrSubmission, setEhrSubmission] = useState(null);
+  const [ehrError, setEhrError] = useState(null);
   const tenantKey = useSelector((state) => state.tenants?.tenantId);
   const redirectUrl = MULTITENANCY_ENABLED ? `/tenant/${tenantKey}/` : "/";
   const draftSubmission = useSelector((state) => state.draft.draftSubmission || {});
@@ -292,6 +298,117 @@ const View = React.memo((props) => {
     }
   }, [form, pubSub.publish]);
 
+  // EHR Integration: Fetch patient data when form is loaded and isEHR is true
+  useEffect(() => {
+    if (!form?._id || !isPublic) return;
+    
+    const queryParams = new URLSearchParams(location.search);
+    const isEHR = queryParams.get('isEHR') === 'true' || queryParams.get('isEHR') === '';
+    
+    if (!isEHR) return;
+    
+    // Get SMART config
+    const smartConfig = getSMARTConfig();
+    
+    if (!smartConfig.clientId) {
+      debugWarn("EHR Integration: SMART client ID not configured");
+      return;
+    }
+    
+    debugLog("=== Starting EHR Integration ===");
+    setEhrError(null);
+    
+    // Call launchSMART - it may return null, a Promise, or redirect
+    const smartClientPromise = launchSMART(
+      smartConfig.clientId,
+      smartConfig.redirectUri,
+      smartConfig.scope
+    );
+    
+    // If launchSMART returns null, it means no EHR launch context - silently skip
+    if (!smartClientPromise) {
+      debugLog("No EHR launch context available, form will load without patient data");
+      return;
+    }
+    
+    // Handle the promise (launchSMART is async and may redirect, 
+    // so this might not execute)
+    Promise.resolve(smartClientPromise)
+      .then((fhirClient) => {
+        if (!fhirClient) {
+          debugLog("SMART client not available, form will load without patient data");
+          return;
+        }
+        debugLog("SMART client initialized");
+        return fetchPatientData(fhirClient);
+      })
+      .then((patientData) => {
+        if (!patientData) {
+          return;
+        }
+        debugLog("Patient data fetched:", patientData.patient);
+        // Clear any previous errors since we successfully fetched patient data
+        setEhrError(null);
+        
+        // Map patient demographics to form fields
+        const mappedData = mapPatientToFormio(patientData.patient, form);
+        debugLog("Mapped form data:", mappedData);
+        
+        // Create submission object for Form.io
+        const submissionData = {
+          data: mappedData
+        };
+        
+        debugLog("Setting EHR submission:", submissionData);
+        setEhrSubmission(submissionData);
+        
+        // If form is already rendered, update it directly
+        if (formRef.current) {
+          debugLog("Form already rendered, updating submission directly");
+          const mergedData = { ...formRef.current.data, ...mappedData };
+          formRef.current.data = mergedData;
+          formRef.current.submission = { data: mergedData };
+        }
+      })
+      .catch((err) => {
+        debugError("Error fetching patient data from EHR:", err);
+        // Only show error if it's not a "must be launched from Epic" error when we have isEHR
+        // This error is shown during initial launch setup, not when patient data fetch fails
+        const errorMessage = err.message || "Failed to fetch patient data from EHR system";
+        if (errorMessage.includes("must be launched from Epic")) {
+          // This is expected during initial launch - don't show error
+          debugLog("EHR launch in progress, waiting for OAuth redirect...");
+          return;
+        }
+        // Don't set error if it's a redirect (which means OAuth is in progress)
+        if (errorMessage.includes("redirect") || errorMessage.includes("OAuth")) {
+          debugLog("EHR OAuth flow in progress...");
+          return;
+        }
+        setEhrError(errorMessage);
+      });
+  }, [form?._id, isPublic, location.search]);
+
+  // Update form when EHR submission data is available
+  useEffect(() => {
+    if (ehrSubmission && formRef.current) {
+      debugLog("EHR submission updated, applying to form:", ehrSubmission);
+      const mergedData = { ...formRef.current.data, ...ehrSubmission.data };
+      formRef.current.data = mergedData;
+      formRef.current.submission = { data: mergedData };
+      
+      // Try to set values directly on components
+      if (formRef.current.setValue && ehrSubmission.data) {
+        Object.keys(ehrSubmission.data).forEach(key => {
+          const component = formRef.current.getComponent(key);
+          if (component && ehrSubmission.data[key]) {
+            component.setValue(ehrSubmission.data[key], { modified: false });
+          }
+        });
+      }
+    }
+  }, [ehrSubmission]);
+
   // will be updated once application/draft listing page is ready
   const handleBack = () => {
     navigateToFormEntries(dispatch, tenantKey, parentFormId || formId);
@@ -362,10 +479,31 @@ const View = React.memo((props) => {
         className="col-12"
       >
         <div className="body-section px-1">
+          {ehrError && (
+            <div className="alert alert-warning mb-3" role="alert">
+              <strong>EHR Integration Warning:</strong> {ehrError}
+              <br />
+              <small>The form will be displayed without pre-filled patient data.</small>
+            </div>
+          )}
           {(isPublic || formStatus === "active") ? (
             <Form
               form={form}
-              submission={isDraftEdit ? draftData : submission}
+              submission={(() => {
+                // Priority: draft data > EHR submission > regular submission
+                if (isDraftEdit && draftData) {
+                  return draftData;
+                }
+                if (ehrSubmission) {
+                  // Merge EHR data with existing submission if any
+                  const baseSubmission = submission || { data: {} };
+                  return {
+                    ...baseSubmission,
+                    data: { ...baseSubmission.data, ...ehrSubmission.data }
+                  };
+                }
+                return submission;
+              })()}
               url={url}
               options={{
                 ...options,
@@ -378,7 +516,26 @@ const View = React.memo((props) => {
                   setDraftData({ data: formRef.current?.data });
                 }
               }}
-              formReady={(e) => formRef.current = e}
+              formReady={(e) => {
+                formRef.current = e;
+                // If we have EHR submission data, apply it to the form
+                if (ehrSubmission && e) {
+                  debugLog("Form ready, applying EHR submission:", ehrSubmission);
+                  const mergedData = { ...e.data, ...ehrSubmission.data };
+                  e.data = mergedData;
+                  e.submission = { data: mergedData };
+                  
+                  // Set values on individual components
+                  if (e.setValue && ehrSubmission.data) {
+                    Object.keys(ehrSubmission.data).forEach(key => {
+                      const component = e.getComponent(key);
+                      if (component && ehrSubmission.data[key]) {
+                        component.setValue(ehrSubmission.data[key], { modified: false });
+                      }
+                    });
+                  }
+                }
+              }}
               onSubmit={(data) => {
                 setPoll(false);
                 exitType.current = "SUBMIT";
