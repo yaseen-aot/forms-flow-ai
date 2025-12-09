@@ -117,6 +117,12 @@ const View = React.memo((props) => {
   const [validFormId, setValidFormId] = useState(undefined);
   // Merged submission state that combines draft/EHR/base submission
   const [mergedSubmission, setMergedSubmission] = useState(null);
+  // Ref to track if we're currently applying EHR data to prevent infinite loops
+  const isApplyingEhrDataRef = useRef(false);
+  // Ref to track the last computed submission to prevent unnecessary state updates
+  const lastComputedSubmissionRef = useRef(null);
+  // Ref to track the last applied mergedSubmission to prevent re-applying the same data
+  const lastAppliedSubmissionRef = useRef(null);
 
   const [showPublicForm, setShowPublicForm] = useState("checking");
   const [poll, setPoll] = useState(DRAFT_ENABLED);
@@ -476,25 +482,24 @@ const View = React.memo((props) => {
 
   // Compute merged submission whenever ehrSubmission, draftData, or submission changes
   useEffect(() => {
-    console.log("=== Computing merged submission ===");
-    console.log("ehrSubmission:", ehrSubmission);
-    console.log("draftData:", draftData);
-    console.log("submission:", submission);
-    console.log("isDraftEdit:", isDraftEdit);
+    // Skip if we're currently applying EHR data to prevent infinite loops
+    if (isApplyingEhrDataRef.current) {
+      return;
+    }
     
     let computedSubmission = null;
     
     if (isDraftEdit && draftData) {
+      // Normalize draftData structure - it might be {data: {...}} or just {...}
+      const draftDataObj = draftData.data || draftData;
+      
       // If we have EHR data, merge it with draft data
       if (ehrSubmission && ehrSubmission.data) {
         computedSubmission = {
-          ...draftData,
-          data: { ...(draftData.data || {}), ...ehrSubmission.data }
+          data: { ...draftDataObj, ...ehrSubmission.data }
         };
-        console.log("Computed submission (draft + EHR):", computedSubmission);
       } else {
-        computedSubmission = draftData;
-        console.log("Computed submission (draft only):", computedSubmission);
+        computedSubmission = { data: draftDataObj };
       }
     } else if (ehrSubmission && ehrSubmission.data) {
       // Merge EHR data with existing submission if any
@@ -503,69 +508,69 @@ const View = React.memo((props) => {
         ...baseSubmission,
         data: { ...(baseSubmission.data || {}), ...ehrSubmission.data }
       };
-      console.log("Computed submission (EHR + base):", computedSubmission);
     } else {
       computedSubmission = submission;
-      console.log("Computed submission (base only):", computedSubmission);
     }
     
-    setMergedSubmission(computedSubmission);
-    debugLog("Computed merged submission:", computedSubmission);
+    // Only update if the computed submission is actually different
+    // Use a ref to track the last computed submission to avoid unnecessary updates
+    const newSubmissionStr = JSON.stringify(computedSubmission);
+    const lastComputedStr = lastComputedSubmissionRef.current;
+    
+    if (newSubmissionStr !== lastComputedStr) {
+      lastComputedSubmissionRef.current = newSubmissionStr;
+      setMergedSubmission(computedSubmission);
+    }
   }, [ehrSubmission, draftData, submission, isDraftEdit]);
 
   // Update form when mergedSubmission changes (similar to FormPreview.js pattern)
   useEffect(() => {
-    console.log("=== mergedSubmission useEffect triggered ===");
-    console.log("mergedSubmission:", mergedSubmission);
-    console.log("formRef.current exists:", !!formRef.current);
-    console.log("formRef.current type:", typeof formRef.current);
-    console.log("formRef.current has getComponent:", typeof formRef.current?.getComponent === 'function');
-    
     // Check if formRef.current is actually a Form.io form instance (has getComponent method)
     const isFormInstance = formRef.current && typeof formRef.current.getComponent === 'function';
     
     if (mergedSubmission && isFormInstance) {
-      console.log("Applying merged submission to form:", mergedSubmission);
-      debugLog("Merged submission updated, applying to form:", mergedSubmission);
+      // Check if this is the same submission we already applied
+      const submissionStr = JSON.stringify(mergedSubmission);
+      if (lastAppliedSubmissionRef.current === submissionStr) {
+        return; // Already applied this submission, skip
+      }
+      
+      // Set flag to prevent onChange from triggering draftData update
+      isApplyingEhrDataRef.current = true;
+      
+      debugLog("Applying merged submission to form:", mergedSubmission);
       formRef.current.submission = mergedSubmission;
-      console.log("Set formRef.current.submission to:", mergedSubmission);
       
       // Try to set values directly on components
       if (mergedSubmission.data) {
-        console.log("Setting values on components, data keys:", Object.keys(mergedSubmission.data));
         Object.keys(mergedSubmission.data).forEach(key => {
           try {
             const component = formRef.current.getComponent(key);
             if (component) {
               const value = mergedSubmission.data[key];
               if (value !== undefined && value !== null && value !== '') {
-                console.log(`Setting value for component ${key}:`, value);
                 debugLog(`Setting value for component ${key}:`, value);
                 component.setValue(value, { modified: false });
                 // Force component to update
                 if (component.updateValue) {
                   component.updateValue({ modified: false });
                 }
-              } else {
-                console.log(`Skipping component ${key} - value is empty:`, value);
               }
-            } else {
-              console.log(`Component not found for key: ${key}`);
             }
           } catch (err) {
-            console.error(`Error setting value for component ${key}:`, err);
+            debugError(`Error setting value for component ${key}:`, err);
           }
         });
-      } else {
-        console.log("No data in mergedSubmission");
       }
-    } else {
-      if (!mergedSubmission) {
-        console.log("No mergedSubmission to apply");
-      }
-      if (!isFormInstance) {
-        console.log("Form not ready yet (formRef.current is not a form instance)");
-      }
+      
+      // Mark this submission as applied
+      lastAppliedSubmissionRef.current = submissionStr;
+      
+      // Clear flag after a longer delay to allow form to fully update
+      // This prevents onChange from triggering during the update
+      setTimeout(() => {
+        isApplyingEhrDataRef.current = false;
+      }, 1000);
     }
   }, [mergedSubmission]);
 
@@ -724,8 +729,19 @@ const View = React.memo((props) => {
                 buttonSettings: { showCancel: false },
               }}
               onChange={() => {
-                if (formRef.current?.data) {
-                  setDraftData({ data: formRef.current?.data });
+                // Skip updating draftData if we're currently applying EHR data
+                if (!isApplyingEhrDataRef.current && formRef.current?.data) {
+                  // Normalize the structure - always use {data: {...}} format
+                  const formData = formRef.current.data;
+                  const normalizedData = formData.data || formData;
+                  
+                  // Only update if data actually changed
+                  const currentDraftStr = JSON.stringify(draftData);
+                  const newDraftStr = JSON.stringify({ data: normalizedData });
+                  
+                  if (currentDraftStr !== newDraftStr) {
+                    setDraftData({ data: normalizedData });
+                  }
                 }
               }}
               formReady={(e) => {
