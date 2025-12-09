@@ -6,6 +6,96 @@
   <meta http-equiv="X-UA-Compatible" content="ie=edge">
   <title>formsflow.ai</title>
   <script src="/config/config.js"></script>
+  <!-- Capture EHR launch parameters (iss, code) from URL and store in sessionStorage -->
+  <!-- Also redirect to launch.html if iss and launch are present (but no code) -->
+  <script>
+    (function() {
+      // Check URL parameters for EHR launch context
+      const urlParams = new URLSearchParams(window.location.search);
+      const iss = urlParams.get('iss');
+      const code = urlParams.get('code');
+      const state = urlParams.get('state');
+      const launch = urlParams.get('launch');
+      const isEHR = urlParams.get('isEHR');
+      
+      // Store in sessionStorage if present (for use by React app)
+      if (iss) {
+        sessionStorage.setItem('epic_iss', iss);
+      }
+      if (code) {
+        sessionStorage.setItem('epic_code', code);
+      }
+      if (state) {
+        sessionStorage.setItem('epic_state', state);
+      }
+      if (launch) {
+        sessionStorage.setItem('epic_launch', launch);
+      }
+      if (isEHR) {
+        sessionStorage.setItem('epic_isEHR', isEHR);
+      }
+      
+      // If we have iss and launch but no code, redirect to launch.html to start OAuth
+      // This handles the initial EHR launch before React components load
+      if (iss && launch && !code) {
+        // Get SMART config from window._env_ (loaded by config.js)
+        const clientId = (window._env_ && window._env_.REACT_APP_SMART_CLIENT_ID) || '';
+        let redirectUri = (window._env_ && window._env_.REACT_APP_SMART_REDIRECT_URI) || '';
+        const scope = (window._env_ && window._env_.REACT_APP_SMART_SCOPE) || 'launch launch/patient patient/*.read';
+        
+        // If no redirect URI is configured, or if current path is /form (listing page),
+        // use the current path as redirect URI
+        const currentPath = window.location.pathname;
+        if (!redirectUri || currentPath === '/form' || currentPath === '/public/form') {
+          // Use current path as redirect URI
+          redirectUri = window.location.origin + currentPath;
+        }
+        
+        // Extract formId from redirect URI and store it (only if redirectUri has a formId)
+        // Don't store formId if redirectUri is just /form (listing page)
+        const redirectPath = new URL(redirectUri).pathname;
+        const formIdMatch = redirectPath.match(/\/(?:public\/)?form\/([^\/]+)/);
+        if (formIdMatch && redirectPath !== '/form' && redirectPath !== '/public/form') {
+          sessionStorage.setItem('epic_formId', formIdMatch[1]);
+        } else {
+          // Clear any previously stored formId if we're going to listing page
+          sessionStorage.removeItem('epic_formId');
+        }
+        
+        // Build launch.html URL with all necessary parameters
+        const encodedIss = encodeURIComponent(iss);
+        const encodedLaunch = encodeURIComponent(launch);
+        let launchUrl = `/launch.html?iss=${encodedIss}&launch=${encodedLaunch}`;
+        
+        // Pass config as URL parameters so launch.html can use them
+        if (clientId) {
+          launchUrl += `&clientId=${encodeURIComponent(clientId)}`;
+        }
+        if (redirectUri) {
+          launchUrl += `&redirectUri=${encodeURIComponent(redirectUri)}`;
+        }
+        if (scope) {
+          launchUrl += `&scope=${encodeURIComponent(scope)}`;
+        }
+        
+        // Preserve isEHR and other query params (but avoid duplicating iss/launch)
+        const currentSearch = window.location.search;
+        if (currentSearch) {
+          const params = new URLSearchParams(currentSearch);
+          params.delete('iss');
+          params.delete('launch');
+          const remainingParams = params.toString();
+          if (remainingParams) {
+            launchUrl += `&${remainingParams}`;
+          }
+        }
+        
+        // Redirect to launch.html
+        window.location.href = launchUrl;
+        return; // Exit early, redirect will happen
+      }
+    })();
+  </script>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@bpmn-io/properties-panel/dist/assets/properties-panel.min.css">
 
   <!-- required dmn modeler styles -->
@@ -16,7 +106,7 @@
   <link rel="stylesheet" href="https://unpkg.com/dmn-js@16.8.0/dist/assets/dmn-js-decision-table-controls.css">
   <link rel="stylesheet" href="https://unpkg.com/dmn-js@16.8.0/dist/assets/dmn-js-literal-expression.css">
   <link rel="stylesheet" href="https://unpkg.com/dmn-js@16.8.0/dist/assets/dmn-font/css/dmn.css">
-  <link rel="stylesheet" href="https://forms-flow-microfrontends.aot-technologies.com/forms-flow-theme@v8.0.0-alpha/forms-flow-theme.min.css">
+  <link rel="stylesheet" href="http://localhost:3008/forms-flow-theme.css">
 
   <!-- required styles from cdn -->
   <link rel="preconnect" href="https://fonts.googleapis.com">

@@ -63,7 +63,7 @@ import PropTypes from "prop-types";
 import { BreadCrumbs, BreadcrumbVariant } from "@formsflow/components";
 import { navigateToFormEntries, navigateToSubmitFormsListing } from "../../../helper/routerHelper";
 import { cloneDeep } from "lodash";
-import { useParams, useLocation } from "react-router-dom";
+import { useParams } from "react-router-dom";
 import { launchSMART, fetchPatientData } from "../../../services/ehrService";
 import { mapPatientToFormio } from "../../../services/ehrMapper";
 import { getSMARTConfig, debugLog, debugError, debugWarn } from "../../../services/ehrConfig";
@@ -76,7 +76,6 @@ const View = React.memo((props) => {
     (state) => state.form.form?.parentFormId
   );
   const { formId } = useParams();
-  const location = useLocation();
   const lang = useSelector((state) => state.user.lang);
   const pubSub = useSelector((state) => state.pubSub);
   const isPublic = !props.isAuthenticated;
@@ -116,6 +115,8 @@ const View = React.memo((props) => {
   const formRef = useRef(isDraftEdit ? { data: cloneDeep(draftSubmission?.data) } : {});
   const [isDraftCreated, setIsDraftCreated] = useState(isDraftEdit);
   const [validFormId, setValidFormId] = useState(undefined);
+  // Merged submission state that combines draft/EHR/base submission
+  const [mergedSubmission, setMergedSubmission] = useState(null);
 
   const [showPublicForm, setShowPublicForm] = useState("checking");
   const [poll, setPoll] = useState(DRAFT_ENABLED);
@@ -298,35 +299,73 @@ const View = React.memo((props) => {
     }
   }, [form, pubSub.publish]);
 
-  // EHR Integration: Fetch patient data when form is loaded and isEHR is true
+  // EHR Integration: Fetch patient data when form is loaded (check session storage only)
   useEffect(() => {
-    if (!form?._id || !isPublic) return;
+    // Always log to help diagnose issues
+    console.log("=== EHR Integration useEffect triggered ===");
+    console.log("Form ID:", form?._id);
+    console.log("Form object:", form);
     
-    const queryParams = new URLSearchParams(location.search);
-    const isEHR = queryParams.get('isEHR') === 'true' || queryParams.get('isEHR') === '';
+    if (!form?._id) {
+      console.log("No form ID, skipping EHR integration");
+      return;
+    }
     
-    if (!isEHR) return;
+    // Check session storage for EHR launch parameters (no query parameter check)
+    const storedIss = sessionStorage.getItem('epic_iss');
+    const storedCode = sessionStorage.getItem('epic_code');
+    const storedLaunch = sessionStorage.getItem('epic_launch');
+    const storedIsEHR = sessionStorage.getItem('epic_isEHR');
+    
+    console.log("Session storage values:", {
+      epic_iss: storedIss,
+      epic_code: storedCode,
+      epic_launch: storedLaunch,
+      epic_isEHR: storedIsEHR
+    });
+    
+    // Has EHR context if we have iss and (code OR launch) in session storage, OR isEHR flag
+    const hasEhrContext = storedIsEHR === 'true' || (storedIss && (storedCode || storedLaunch));
+    
+    console.log("Has EHR context:", hasEhrContext);
+    
+    if (!hasEhrContext) {
+      console.log("No EHR context detected in session storage - skipping patient data fetch");
+      debugLog("No EHR context detected in session storage - skipping patient data fetch");
+      debugLog("Session storage values - iss:", storedIss, "code:", storedCode, "launch:", storedLaunch, "isEHR:", storedIsEHR);
+      return;
+    }
     
     // Get SMART config
     const smartConfig = getSMARTConfig();
+    console.log("SMART config:", smartConfig);
     
     if (!smartConfig.clientId) {
+      console.warn("EHR Integration: SMART client ID not configured");
       debugWarn("EHR Integration: SMART client ID not configured");
       return;
     }
     
+    console.log("=== Starting EHR Integration ===");
+    console.log("EHR context detected - fetching patient data");
+    console.log("Session storage - iss:", storedIss, "code:", storedCode);
     debugLog("=== Starting EHR Integration ===");
+    debugLog("EHR context detected - fetching patient data");
+    debugLog("Session storage - iss:", storedIss, "code:", storedCode);
     setEhrError(null);
     
     // Call launchSMART - it may return null, a Promise, or redirect
+    console.log("Calling launchSMART with config:", smartConfig);
     const smartClientPromise = launchSMART(
       smartConfig.clientId,
       smartConfig.redirectUri,
       smartConfig.scope
     );
+    console.log("launchSMART returned:", smartClientPromise);
     
     // If launchSMART returns null, it means no EHR launch context - silently skip
     if (!smartClientPromise) {
+      console.log("No EHR launch context available, form will load without patient data");
       debugLog("No EHR launch context available, form will load without patient data");
       return;
     }
@@ -335,79 +374,265 @@ const View = React.memo((props) => {
     // so this might not execute)
     Promise.resolve(smartClientPromise)
       .then((fhirClient) => {
+        console.log("FHIR client received:", fhirClient);
         if (!fhirClient) {
+          console.log("SMART client not available, form will load without patient data");
           debugLog("SMART client not available, form will load without patient data");
-          return;
+          return null;
         }
+        console.log("SMART client initialized");
         debugLog("SMART client initialized");
-        return fetchPatientData(fhirClient);
+        console.log("Calling fetchPatientData with client:", fhirClient);
+        const patientDataPromise = fetchPatientData(fhirClient);
+        console.log("fetchPatientData returned promise:", patientDataPromise);
+        return patientDataPromise;
       })
       .then((patientData) => {
+        console.log("=== Inside patientData .then() ===");
+        console.log("Patient data received:", patientData);
         if (!patientData) {
+          console.log("No patient data returned");
           return;
         }
+        console.log("Patient data fetched:", patientData.patient);
         debugLog("Patient data fetched:", patientData.patient);
         // Clear any previous errors since we successfully fetched patient data
         setEhrError(null);
         
         // Map patient demographics to form fields
+        console.log("Mapping patient data to form fields...");
+        console.log("Form object:", form);
+        console.log("Form components:", form.components);
         const mappedData = mapPatientToFormio(patientData.patient, form);
+        
+        console.log("=== EHR Mapping Debug ===");
+        console.log("Patient data from EHR:", patientData.patient);
+        console.log("Form schema:", form);
+        console.log("Mapped form data:", mappedData);
+        console.log("Form field keys:", form.components?.map(c => c.key).filter(Boolean));
+        console.log("Number of mapped fields:", Object.keys(mappedData).length);
+        debugLog("=== EHR Mapping Debug ===");
+        debugLog("Patient data from EHR:", patientData.patient);
+        debugLog("Form schema:", form);
         debugLog("Mapped form data:", mappedData);
+        debugLog("Form field keys:", form.components?.map(c => c.key).filter(Boolean));
+        debugLog("Number of mapped fields:", Object.keys(mappedData).length);
         
         // Create submission object for Form.io
         const submissionData = {
           data: mappedData
         };
         
+        console.log("Setting EHR submission:", submissionData);
+        console.log("formRef.current exists:", !!formRef.current);
         debugLog("Setting EHR submission:", submissionData);
         setEhrSubmission(submissionData);
         
         // If form is already rendered, update it directly
         if (formRef.current) {
+          console.log("Form already rendered, updating submission directly");
           debugLog("Form already rendered, updating submission directly");
-          const mergedData = { ...formRef.current.data, ...mappedData };
+          // Merge with existing form data (which might include draft data)
+          const existingData = formRef.current.data || {};
+          const mergedData = { ...existingData, ...mappedData };
+          console.log("Merged data to set on form:", mergedData);
           formRef.current.data = mergedData;
           formRef.current.submission = { data: mergedData };
+          
+          // Also update draftData state if we're in draft edit mode
+          if (isDraftEdit) {
+            setDraftData({ data: mergedData });
+            console.log("Updated draft data with EHR patient information");
+            debugLog("Updated draft data with EHR patient information");
+          }
+        } else {
+          console.log("Form not yet rendered, will apply when formReady is called");
         }
       })
       .catch((err) => {
+        console.error("Error fetching patient data from EHR:", err);
+        console.error("Error stack:", err.stack);
         debugError("Error fetching patient data from EHR:", err);
         // Only show error if it's not a "must be launched from Epic" error when we have isEHR
         // This error is shown during initial launch setup, not when patient data fetch fails
         const errorMessage = err.message || "Failed to fetch patient data from EHR system";
+        console.error("Error message:", errorMessage);
         if (errorMessage.includes("must be launched from Epic")) {
           // This is expected during initial launch - don't show error
+          console.log("EHR launch in progress, waiting for OAuth redirect...");
           debugLog("EHR launch in progress, waiting for OAuth redirect...");
           return;
         }
         // Don't set error if it's a redirect (which means OAuth is in progress)
         if (errorMessage.includes("redirect") || errorMessage.includes("OAuth")) {
+          console.log("EHR OAuth flow in progress...");
           debugLog("EHR OAuth flow in progress...");
           return;
         }
+        console.error("Setting EHR error:", errorMessage);
         setEhrError(errorMessage);
       });
-  }, [form?._id, isPublic, location.search]);
+  }, [form?._id]);
 
-  // Update form when EHR submission data is available
+  // Compute merged submission whenever ehrSubmission, draftData, or submission changes
+  useEffect(() => {
+    console.log("=== Computing merged submission ===");
+    console.log("ehrSubmission:", ehrSubmission);
+    console.log("draftData:", draftData);
+    console.log("submission:", submission);
+    console.log("isDraftEdit:", isDraftEdit);
+    
+    let computedSubmission = null;
+    
+    if (isDraftEdit && draftData) {
+      // If we have EHR data, merge it with draft data
+      if (ehrSubmission && ehrSubmission.data) {
+        computedSubmission = {
+          ...draftData,
+          data: { ...(draftData.data || {}), ...ehrSubmission.data }
+        };
+        console.log("Computed submission (draft + EHR):", computedSubmission);
+      } else {
+        computedSubmission = draftData;
+        console.log("Computed submission (draft only):", computedSubmission);
+      }
+    } else if (ehrSubmission && ehrSubmission.data) {
+      // Merge EHR data with existing submission if any
+      const baseSubmission = submission || { data: {} };
+      computedSubmission = {
+        ...baseSubmission,
+        data: { ...(baseSubmission.data || {}), ...ehrSubmission.data }
+      };
+      console.log("Computed submission (EHR + base):", computedSubmission);
+    } else {
+      computedSubmission = submission;
+      console.log("Computed submission (base only):", computedSubmission);
+    }
+    
+    setMergedSubmission(computedSubmission);
+    debugLog("Computed merged submission:", computedSubmission);
+  }, [ehrSubmission, draftData, submission, isDraftEdit]);
+
+  // Update form when mergedSubmission changes (similar to FormPreview.js pattern)
+  useEffect(() => {
+    console.log("=== mergedSubmission useEffect triggered ===");
+    console.log("mergedSubmission:", mergedSubmission);
+    console.log("formRef.current exists:", !!formRef.current);
+    console.log("formRef.current type:", typeof formRef.current);
+    console.log("formRef.current has getComponent:", typeof formRef.current?.getComponent === 'function');
+    
+    // Check if formRef.current is actually a Form.io form instance (has getComponent method)
+    const isFormInstance = formRef.current && typeof formRef.current.getComponent === 'function';
+    
+    if (mergedSubmission && isFormInstance) {
+      console.log("Applying merged submission to form:", mergedSubmission);
+      debugLog("Merged submission updated, applying to form:", mergedSubmission);
+      formRef.current.submission = mergedSubmission;
+      console.log("Set formRef.current.submission to:", mergedSubmission);
+      
+      // Try to set values directly on components
+      if (mergedSubmission.data) {
+        console.log("Setting values on components, data keys:", Object.keys(mergedSubmission.data));
+        Object.keys(mergedSubmission.data).forEach(key => {
+          try {
+            const component = formRef.current.getComponent(key);
+            if (component) {
+              const value = mergedSubmission.data[key];
+              if (value !== undefined && value !== null && value !== '') {
+                console.log(`Setting value for component ${key}:`, value);
+                debugLog(`Setting value for component ${key}:`, value);
+                component.setValue(value, { modified: false });
+                // Force component to update
+                if (component.updateValue) {
+                  component.updateValue({ modified: false });
+                }
+              } else {
+                console.log(`Skipping component ${key} - value is empty:`, value);
+              }
+            } else {
+              console.log(`Component not found for key: ${key}`);
+            }
+          } catch (err) {
+            console.error(`Error setting value for component ${key}:`, err);
+          }
+        });
+      } else {
+        console.log("No data in mergedSubmission");
+      }
+    } else {
+      if (!mergedSubmission) {
+        console.log("No mergedSubmission to apply");
+      }
+      if (!isFormInstance) {
+        console.log("Form not ready yet (formRef.current is not a form instance)");
+      }
+    }
+  }, [mergedSubmission]);
+
+  // Update form when EHR submission data is available (similar to FormPreview.js)
+  // This useEffect ensures data is applied when form becomes ready or when ehrSubmission changes
   useEffect(() => {
     if (ehrSubmission && formRef.current) {
       debugLog("EHR submission updated, applying to form:", ehrSubmission);
-      const mergedData = { ...formRef.current.data, ...ehrSubmission.data };
-      formRef.current.data = mergedData;
-      formRef.current.submission = { data: mergedData };
+      debugLog("Current formRef.data:", formRef.current.data);
+      debugLog("Current formRef.submission:", formRef.current.submission);
       
-      // Try to set values directly on components
-      if (formRef.current.setValue && ehrSubmission.data) {
-        Object.keys(ehrSubmission.data).forEach(key => {
-          const component = formRef.current.getComponent(key);
-          if (component && ehrSubmission.data[key]) {
-            component.setValue(ehrSubmission.data[key], { modified: false });
-          }
-        });
+      // Merge with existing form data (which might include draft data)
+      const existingData = formRef.current.data || {};
+      const mergedData = { ...existingData, ...ehrSubmission.data };
+      
+      debugLog("Merged data:", mergedData);
+      
+      // Set submission on form instance (this is critical for Form.io)
+      const submissionObj = { data: mergedData };
+      formRef.current.submission = submissionObj;
+      formRef.current.data = mergedData;
+      
+      debugLog("Set formRef.current.submission to:", submissionObj);
+      debugLog("Set formRef.current.data to:", mergedData);
+      
+      // Also update draftData state if we're in draft edit mode
+      if (isDraftEdit) {
+        setDraftData({ data: mergedData });
+        debugLog("Updated draft data with EHR patient information");
       }
+      
+      // Try to set values directly on components (critical for Form.io to display values)
+      // Use setTimeout to ensure form is fully rendered
+      setTimeout(() => {
+        // Check if formRef.current is actually a Form.io form instance (has getComponent method)
+        const isFormInstance = formRef.current && typeof formRef.current.getComponent === 'function';
+        
+        if (ehrSubmission.data && isFormInstance) {
+          Object.keys(ehrSubmission.data).forEach(key => {
+            try {
+              const component = formRef.current.getComponent(key);
+              if (component) {
+                const value = ehrSubmission.data[key];
+                if (value !== undefined && value !== null && value !== '') {
+                  debugLog(`Setting value for component ${key}:`, value);
+                  component.setValue(value, { modified: false });
+                  // Force component to update
+                  if (component.updateValue) {
+                    component.updateValue({ modified: false });
+                  }
+                }
+              } else {
+                debugLog(`Component not found for key: ${key}`);
+              }
+            } catch (err) {
+              debugError(`Error setting value for component ${key}:`, err);
+            }
+          });
+          
+          // Trigger form refresh to ensure UI updates
+          if (formRef.current.redraw) {
+            formRef.current.redraw();
+          }
+        }
+      }, 100);
     }
-  }, [ehrSubmission]);
+  }, [ehrSubmission, isDraftEdit]);
 
   // will be updated once application/draft listing page is ready
   const handleBack = () => {
@@ -469,6 +694,7 @@ const View = React.memo((props) => {
                 /> 
                 <h4>{draftSubmission?.isDraft ? draftId : t("New Submission")}</h4>
             </div>
+
         </div>
 
       <Errors errors={errors} />
@@ -481,7 +707,7 @@ const View = React.memo((props) => {
         <div className="body-section px-1">
           {ehrError && (
             <div className="alert alert-warning mb-3" role="alert">
-              <strong>EHR Integration Warning:</strong> {ehrError}
+              <strong>EHR Integration Warning:222</strong> {ehrError}
               <br />
               <small>The form will be displayed without pre-filled patient data.</small>
             </div>
@@ -489,21 +715,7 @@ const View = React.memo((props) => {
           {(isPublic || formStatus === "active") ? (
             <Form
               form={form}
-              submission={(() => {
-                // Priority: draft data > EHR submission > regular submission
-                if (isDraftEdit && draftData) {
-                  return draftData;
-                }
-                if (ehrSubmission) {
-                  // Merge EHR data with existing submission if any
-                  const baseSubmission = submission || { data: {} };
-                  return {
-                    ...baseSubmission,
-                    data: { ...baseSubmission.data, ...ehrSubmission.data }
-                  };
-                }
-                return submission;
-              })()}
+              submission={mergedSubmission || submission}
               url={url}
               options={{
                 ...options,
@@ -518,18 +730,56 @@ const View = React.memo((props) => {
               }}
               formReady={(e) => {
                 formRef.current = e;
-                // If we have EHR submission data, apply it to the form
-                if (ehrSubmission && e) {
-                  debugLog("Form ready, applying EHR submission:", ehrSubmission);
-                  const mergedData = { ...e.data, ...ehrSubmission.data };
-                  e.data = mergedData;
-                  e.submission = { data: mergedData };
+                debugLog("Form ready callback triggered");
+                debugLog("Current ehrSubmission:", ehrSubmission);
+                debugLog("Current mergedSubmission:", mergedSubmission);
+                debugLog("Form instance data:", e.data);
+                debugLog("Form instance submission:", e.submission);
+                
+                // Apply merged submission if available (matches FormPreview.js pattern)
+                if (mergedSubmission && e) {
+                  debugLog("Form ready, applying merged submission:", mergedSubmission);
+                  e.submission = mergedSubmission;
                   
-                  // Set values on individual components
-                  if (e.setValue && ehrSubmission.data) {
+                  // Set values directly on components (critical for Form.io)
+                  if (mergedSubmission.data) {
+                    Object.keys(mergedSubmission.data).forEach(key => {
+                      const component = e.getComponent(key);
+                      if (component && mergedSubmission.data[key]) {
+                        debugLog(`Setting value for component ${key}:`, mergedSubmission.data[key]);
+                        component.setValue(mergedSubmission.data[key], { modified: false });
+                      }
+                    });
+                  }
+                } else if (ehrSubmission && e) {
+                  // Fallback: apply EHR submission directly if mergedSubmission not ready
+                  debugLog("Form ready, applying EHR submission:", ehrSubmission);
+                  
+                  // Merge with existing form data (which might include draft data)
+                  const existingData = e.data || {};
+                  const mergedData = { ...existingData, ...ehrSubmission.data };
+                  
+                  debugLog("Merged data to apply:", mergedData);
+                  
+                  // Set submission on form instance (critical for Form.io)
+                  const submissionObj = { data: mergedData };
+                  e.submission = submissionObj;
+                  e.data = mergedData;
+                  
+                  debugLog("Set form instance submission to:", submissionObj);
+                  
+                  // Also update draftData state if we're in draft edit mode
+                  if (isDraftEdit) {
+                    setDraftData({ data: mergedData });
+                    debugLog("Updated draft data with EHR patient information");
+                  }
+                  
+                  // Set values on individual components (this is critical for Form.io)
+                  if (ehrSubmission.data) {
                     Object.keys(ehrSubmission.data).forEach(key => {
                       const component = e.getComponent(key);
-                      if (component && ehrSubmission.data[key]) {
+                      if (component && ehrSubmission.data[key] !== undefined && ehrSubmission.data[key] !== null && ehrSubmission.data[key] !== '') {
+                        debugLog(`Setting value for component ${key}:`, ehrSubmission.data[key]);
                         component.setValue(ehrSubmission.data[key], { modified: false });
                       }
                     });

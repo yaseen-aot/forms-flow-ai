@@ -69,6 +69,19 @@
       const urlParams = new URLSearchParams(window.location.search);
       const iss = urlParams.get('iss');
       const launch = urlParams.get('launch');
+      const code = urlParams.get('code'); // OAuth authorization code
+      const state = urlParams.get('state'); // OAuth state
+      
+      // Store iss and code in sessionStorage if present (for use by the React app)
+      if (iss) {
+        sessionStorage.setItem('epic_iss', iss);
+      }
+      if (code) {
+        sessionStorage.setItem('epic_code', code);
+      }
+      if (state) {
+        sessionStorage.setItem('epic_state', state);
+      }
       
       if (iss && launch) {
         // EHR launch - use the launch parameters
@@ -117,15 +130,35 @@
         });
       } else {
         // No launch parameters - redirect to main app
-        const formId = sessionStorage.getItem('epic_formId');
-        const isEHR = sessionStorage.getItem('epic_isEHR');
+        // Use the configured redirectUri, don't override with stored formId
+        // The redirectUri should be what was registered in SMART Health IT
         let redirectUrl = config.redirectUri;
         
-        if (formId) {
-          redirectUrl = `${window.location.origin}/public/form/${formId}`;
-          if (isEHR) {
-            redirectUrl += `?isEHR=${isEHR}`;
+        // Only use stored formId if redirectUri doesn't already specify a form
+        const redirectPath = new URL(redirectUrl).pathname;
+        const hasFormIdInUri = redirectPath.match(/\/(?:public\/)?form\/([^\/]+)/);
+        
+        if (!hasFormIdInUri) {
+          // RedirectUri doesn't have a formId, check if we should use stored one
+          const formId = sessionStorage.getItem('epic_formId');
+          if (formId) {
+            // Check if redirectUri is /form or /public/form (listing pages)
+            if (redirectPath === '/form' || redirectPath === '/public/form') {
+              // User wants listing page, don't override with formId
+              redirectUrl = redirectUrl;
+            } else {
+              // Use stored formId
+              redirectUrl = `${window.location.origin}/public/form/${formId}`;
+            }
           }
+        }
+        
+        // Add isEHR parameter if present
+        const isEHR = sessionStorage.getItem('epic_isEHR');
+        if (isEHR) {
+          const url = new URL(redirectUrl);
+          url.searchParams.set('isEHR', isEHR);
+          redirectUrl = url.toString();
         }
         
         window.location.href = redirectUrl;

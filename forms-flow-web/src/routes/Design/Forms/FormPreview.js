@@ -1,6 +1,6 @@
 import { Form } from "@aot-technologies/formio-react";
 import React, { useEffect, useState, useRef } from "react";
-import { useParams, useLocation } from "react-router-dom";
+import { useParams } from "react-router-dom";
 import { useSelector } from "react-redux";
 import { RESOURCE_BUNDLES_DATA } from "../../../resourceBundles/i18n.js";
 import { fetchFormById } from "../../../apiManager/services/bpmFormServices.js";
@@ -12,7 +12,6 @@ import { getSMARTConfig, debugLog, debugError } from "../../../services/ehrConfi
 const FormPreview = () => {
   const lang = useSelector((state) => state.user.lang);
   const { formId } = useParams();
-  const location = useLocation();
   const [form, setForm] = useState(null);
   const [loading, setLoading] = useState(false);
   const [submission, setSubmission] = useState(null);
@@ -37,9 +36,14 @@ const FormPreview = () => {
   }, [submission]);
 
   useEffect(() => {
-    // Check for isEHR query parameter
-    const queryParams = new URLSearchParams(location.search);
-    const isEHR = queryParams.get('isEHR') === 'true' || queryParams.get('isEHR') === '';
+    // Check session storage for EHR launch parameters (no query parameter check)
+    const storedIss = sessionStorage.getItem('epic_iss');
+    const storedCode = sessionStorage.getItem('epic_code');
+    const storedLaunch = sessionStorage.getItem('epic_launch');
+    const storedIsEHR = sessionStorage.getItem('epic_isEHR');
+    
+    // Has EHR context if we have iss and (code OR launch) in session storage, OR isEHR flag
+    const hasEhrContext = storedIsEHR === 'true' || (storedIss && (storedCode || storedLaunch));
     
     if (!formId) {
       setFormError("Form ID is missing from the URL. Please ensure you're accessing the form with a valid form ID.");
@@ -57,18 +61,29 @@ const FormPreview = () => {
             const { data } = res;
             setForm(data);
             
-            // If isEHR is true, launch SMART and fetch patient data
+            // If we have EHR context (from query param or session storage), launch SMART and fetch patient data
             const smartConfig = getSMARTConfig(formId);
-            if (isEHR && smartConfig.clientId) {
+            if (hasEhrContext && smartConfig.clientId) {
+              debugLog("EHR context detected - fetching patient data");
+              debugLog("Session storage - iss:", storedIss, "code:", storedCode);
+              
               launchSMART(
                 smartConfig.clientId,
                 smartConfig.redirectUri,
                 smartConfig.scope
               )
                 .then((fhirClient) => {
+                  if (!fhirClient) {
+                    debugLog("No FHIR client available, form will load without patient data");
+                    return null;
+                  }
                   return fetchPatientData(fhirClient);
                 })
                 .then((patientData) => {
+                  if (!patientData) {
+                    return;
+                  }
+                  
                   // Map patient demographics to form fields
                   const mappedData = mapPatientToFormio(patientData.patient, data);
                   
@@ -117,7 +132,7 @@ const FormPreview = () => {
         .finally(() => {
           setLoading(false);
         });
-  }, [formId, location.search]);
+  }, [formId]);
 
   if (loading) {
     return <Loading />;
@@ -157,22 +172,6 @@ const FormPreview = () => {
     <div className="form-preview-tab">
       <div className="preview-header-text mb-4">{form?.title}</div>
 
-      {(() => {
-        const queryParams = new URLSearchParams(location.search);
-        const isEHR = queryParams.get('isEHR') === 'true' || queryParams.get('isEHR') === '';
-        if (isEHR) {
-          const smartConfig = getSMARTConfig(formId);
-          if (!smartConfig.clientId) {
-            return (
-              <div className="alert alert-info mb-3" role="alert">
-                <strong>EHR Integration:</strong> SMART client ID not configured. 
-                Please set REACT_APP_SMART_CLIENT_ID environment variable.
-              </div>
-            );
-          }
-        }
-        return null;
-      })()}
       <div>
         <Form
           form={form}
