@@ -115,14 +115,8 @@ const View = React.memo((props) => {
   const formRef = useRef(isDraftEdit ? { data: cloneDeep(draftSubmission?.data) } : {});
   const [isDraftCreated, setIsDraftCreated] = useState(isDraftEdit);
   const [validFormId, setValidFormId] = useState(undefined);
-  // Merged submission state that combines draft/EHR/base submission
-  const [mergedSubmission, setMergedSubmission] = useState(null);
-  // Ref to track if we're currently applying EHR data to prevent infinite loops
-  const isApplyingEhrDataRef = useRef(false);
-  // Ref to track the last computed submission to prevent unnecessary state updates
-  const lastComputedSubmissionRef = useRef(null);
-  // Ref to track the last applied mergedSubmission to prevent re-applying the same data
-  const lastAppliedSubmissionRef = useRef(null);
+  // EHR submission data - simple structure like FormPreview.js
+  // Just holds { data: mappedPatientData } when EHR data is fetched
 
   const [showPublicForm, setShowPublicForm] = useState("checking");
   const [poll, setPoll] = useState(DRAFT_ENABLED);
@@ -373,32 +367,46 @@ const View = React.memo((props) => {
         
         debugLog("=== EHR Mapping Debug ===");
         debugLog("Patient data from EHR:", patientData.patient);
-        debugLog("Mapped form data:", mappedData);
+        debugLog("Mapped form data (raw):", mappedData);
+        
+        // CRITICAL: Filter out any non-primitive values to prevent [object Object]
+        const filteredMappedData = {};
+        Object.keys(mappedData).forEach(key => {
+          const value = mappedData[key];
+          const valueType = typeof value;
+          debugLog(`Checking key "${key}": type=${valueType}, value=`, value);
+          
+          if (value === null || value === undefined) {
+            // Skip null/undefined
+            return;
+          }
+          
+          if (valueType === 'string') {
+            filteredMappedData[key] = value;
+          } else if (valueType === 'number' || valueType === 'boolean') {
+            filteredMappedData[key] = String(value);
+          } else {
+            // Object or array - skip it
+            debugLog(`FILTERING OUT non-primitive for key "${key}":`, value);
+          }
+        });
+        
+        debugLog("Filtered mapped form data:", filteredMappedData);
         debugLog("Form field keys:", form.components?.map(c => c.key).filter(Boolean));
-        debugLog("Number of mapped fields:", Object.keys(mappedData).length);
+        debugLog("Number of mapped fields:", Object.keys(filteredMappedData).length);
         
         // Create submission object for Form.io
         const submissionData = {
-          data: mappedData
+          data: filteredMappedData
         };
         
         debugLog("Setting EHR submission:", submissionData);
         setEhrSubmission(submissionData);
         
-        // If form is already rendered, update it directly
+        // If form is already rendered, update it directly (simple like FormPreview.js)
         if (formRef.current) {
           debugLog("Form already rendered, updating submission directly");
-          // Merge with existing form data (which might include draft data)
-          const existingData = formRef.current.data || {};
-          const mergedData = { ...existingData, ...mappedData };
-          formRef.current.data = mergedData;
-          formRef.current.submission = { data: mergedData };
-          
-          // Also update draftData state if we're in draft edit mode
-          if (isDraftEdit) {
-            setDraftData({ data: mergedData });
-            debugLog("Updated draft data with EHR patient information");
-          }
+          formRef.current.submission = submissionData;
         }
       })
       .catch((err) => {
@@ -420,164 +428,28 @@ const View = React.memo((props) => {
       });
   }, [form?._id, isDraftEdit]);
 
-  // Compute merged submission whenever ehrSubmission, draftData, or submission changes
+  // Update form when EHR submission data is available (simple pattern like FormPreview.js)
   useEffect(() => {
-    // Skip if we're currently applying EHR data to prevent infinite loops
-    if (isApplyingEhrDataRef.current) {
-      return;
-    }
-    
-    let computedSubmission = null;
-    
-    if (isDraftEdit && draftData) {
-      // Normalize draftData structure - it might be {data: {...}} or just {...}
-      const draftDataObj = draftData.data || draftData;
-      
-      // If we have EHR data, merge it with draft data
-      if (ehrSubmission && ehrSubmission.data) {
-        computedSubmission = {
-          data: { ...draftDataObj, ...ehrSubmission.data }
-        };
-      } else {
-        computedSubmission = { data: draftDataObj };
-      }
-    } else if (ehrSubmission && ehrSubmission.data) {
-      // Merge EHR data with existing submission if any
-      const baseSubmission = submission || { data: {} };
-      computedSubmission = {
-        ...baseSubmission,
-        data: { ...(baseSubmission.data || {}), ...ehrSubmission.data }
-      };
-    } else {
-      computedSubmission = submission;
-    }
-    
-    // Only update if the computed submission is actually different
-    // Use a ref to track the last computed submission to avoid unnecessary updates
-    const newSubmissionStr = JSON.stringify(computedSubmission);
-    const lastComputedStr = lastComputedSubmissionRef.current;
-    
-    if (newSubmissionStr !== lastComputedStr) {
-      lastComputedSubmissionRef.current = newSubmissionStr;
-      setMergedSubmission(computedSubmission);
-    }
-  }, [ehrSubmission, draftData, submission, isDraftEdit]);
-
-  // Update form when mergedSubmission changes (similar to FormPreview.js pattern)
-  useEffect(() => {
-    // Check if formRef.current is actually a Form.io form instance (has getComponent method)
-    const isFormInstance = formRef.current && typeof formRef.current.getComponent === 'function';
-    
-    if (mergedSubmission && isFormInstance) {
-      // Check if this is the same submission we already applied
-      const submissionStr = JSON.stringify(mergedSubmission);
-      if (lastAppliedSubmissionRef.current === submissionStr) {
-        return; // Already applied this submission, skip
-      }
-      
-      // Set flag to prevent onChange from triggering draftData update
-      isApplyingEhrDataRef.current = true;
-      
-      debugLog("Applying merged submission to form:", mergedSubmission);
-      formRef.current.submission = mergedSubmission;
+    if (ehrSubmission && ehrSubmission.data && formRef.current) {
+      debugLog("EHR submission updated, applying to form:", ehrSubmission);
+      formRef.current.submission = ehrSubmission;
       
       // Try to set values directly on components
-      if (mergedSubmission.data) {
-        Object.keys(mergedSubmission.data).forEach(key => {
-          try {
+      if (typeof formRef.current.getComponent === 'function') {
+        Object.keys(ehrSubmission.data).forEach(key => {
+          const value = ehrSubmission.data[key];
+          // Only set primitive values (string, number, boolean) or arrays
+          if (value !== null && value !== undefined && 
+              (typeof value !== 'object' || Array.isArray(value))) {
             const component = formRef.current.getComponent(key);
             if (component) {
-              const value = mergedSubmission.data[key];
-              if (value !== undefined && value !== null && value !== '') {
-                debugLog(`Setting value for component ${key}:`, value);
-                component.setValue(value, { modified: false });
-                // Force component to update
-                if (component.updateValue) {
-                  component.updateValue({ modified: false });
-                }
-              }
+              component.setValue(value, { modified: false });
             }
-          } catch (err) {
-            debugError(`Error setting value for component ${key}:`, err);
           }
         });
       }
-      
-      // Mark this submission as applied
-      lastAppliedSubmissionRef.current = submissionStr;
-      
-      // Clear flag after a longer delay to allow form to fully update
-      // This prevents onChange from triggering during the update
-      setTimeout(() => {
-        isApplyingEhrDataRef.current = false;
-      }, 1000);
     }
-  }, [mergedSubmission]);
-
-  // Update form when EHR submission data is available (similar to FormPreview.js)
-  // This useEffect ensures data is applied when form becomes ready or when ehrSubmission changes
-  useEffect(() => {
-    if (ehrSubmission && formRef.current) {
-      debugLog("EHR submission updated, applying to form:", ehrSubmission);
-      debugLog("Current formRef.data:", formRef.current.data);
-      debugLog("Current formRef.submission:", formRef.current.submission);
-      
-      // Merge with existing form data (which might include draft data)
-      const existingData = formRef.current.data || {};
-      const mergedData = { ...existingData, ...ehrSubmission.data };
-      
-      debugLog("Merged data:", mergedData);
-      
-      // Set submission on form instance (this is critical for Form.io)
-      const submissionObj = { data: mergedData };
-      formRef.current.submission = submissionObj;
-      formRef.current.data = mergedData;
-      
-      debugLog("Set formRef.current.submission to:", submissionObj);
-      debugLog("Set formRef.current.data to:", mergedData);
-      
-      // Also update draftData state if we're in draft edit mode
-      if (isDraftEdit) {
-        setDraftData({ data: mergedData });
-        debugLog("Updated draft data with EHR patient information");
-      }
-      
-      // Try to set values directly on components (critical for Form.io to display values)
-      // Use setTimeout to ensure form is fully rendered
-      setTimeout(() => {
-        // Check if formRef.current is actually a Form.io form instance (has getComponent method)
-        const isFormInstance = formRef.current && typeof formRef.current.getComponent === 'function';
-        
-        if (ehrSubmission.data && isFormInstance) {
-          Object.keys(ehrSubmission.data).forEach(key => {
-            try {
-              const component = formRef.current.getComponent(key);
-              if (component) {
-                const value = ehrSubmission.data[key];
-                if (value !== undefined && value !== null && value !== '') {
-                  debugLog(`Setting value for component ${key}:`, value);
-                  component.setValue(value, { modified: false });
-                  // Force component to update
-                  if (component.updateValue) {
-                    component.updateValue({ modified: false });
-                  }
-                }
-              } else {
-                debugLog(`Component not found for key: ${key}`);
-              }
-            } catch (err) {
-              debugError(`Error setting value for component ${key}:`, err);
-            }
-          });
-          
-          // Trigger form refresh to ensure UI updates
-          if (formRef.current.redraw) {
-            formRef.current.redraw();
-          }
-        }
-      }, 100);
-    }
-  }, [ehrSubmission, isDraftEdit]);
+  }, [ehrSubmission]);
 
   // will be updated once application/draft listing page is ready
   const handleBack = () => {
@@ -660,7 +532,23 @@ const View = React.memo((props) => {
           {(isPublic || formStatus === "active") ? (
             <Form
               form={form}
-              submission={mergedSubmission || submission}
+              submission={(() => {
+                // Filter submission to ensure no objects are passed to Form.io
+                const sub = ehrSubmission || submission;
+                if (!sub || !sub.data) return sub;
+                const filteredData = {};
+                Object.keys(sub.data).forEach(key => {
+                  const value = sub.data[key];
+                  // Only include string, number, boolean (convert to string for safety)
+                  if (typeof value === 'string') {
+                    filteredData[key] = value;
+                  } else if (typeof value === 'number' || typeof value === 'boolean') {
+                    filteredData[key] = String(value);
+                  }
+                  // Skip objects, arrays, null, undefined
+                });
+                return { ...sub, data: filteredData };
+              })()}
               url={url}
               options={{
                 ...options,
@@ -669,69 +557,32 @@ const View = React.memo((props) => {
                 buttonSettings: { showCancel: false },
               }}
               onChange={() => {
-                // Skip updating draftData if we're currently applying EHR data
-                if (!isApplyingEhrDataRef.current && formRef.current?.data) {
-                  // Normalize the structure - always use {data: {...}} format
-                  const formData = formRef.current.data;
-                  const normalizedData = formData.data || formData;
-                  
-                  // Only update if data actually changed
-                  const currentDraftStr = JSON.stringify(draftData);
-                  const newDraftStr = JSON.stringify({ data: normalizedData });
-                  
-                  if (currentDraftStr !== newDraftStr) {
-                    setDraftData({ data: normalizedData });
-                  }
+                // Update draftData for auto-save functionality
+                if (formRef.current?.data) {
+                  setDraftData({ data: formRef.current.data });
                 }
               }}
-              formReady={(e) => {
-                formRef.current = e;
+              formReady={(formInstance) => {
+                formRef.current = formInstance;
                 debugLog("Form ready callback triggered");
                 
-                // Apply merged submission if available (matches FormPreview.js pattern)
-                if (mergedSubmission && e) {
-                  debugLog("Form ready, applying merged submission:", mergedSubmission);
-                  e.submission = mergedSubmission;
+                // Apply EHR submission if available (simple pattern like FormPreview.js)
+                if (ehrSubmission && ehrSubmission.data) {
+                  debugLog("Setting submission on form instance:", ehrSubmission);
+                  formInstance.submission = ehrSubmission;
                   
-                  // Set values directly on components (critical for Form.io)
-                  if (mergedSubmission.data) {
-                    Object.keys(mergedSubmission.data).forEach(key => {
-                      const component = e.getComponent(key);
-                      if (component && mergedSubmission.data[key]) {
-                        debugLog(`Setting value for component ${key}:`, mergedSubmission.data[key]);
-                        component.setValue(mergedSubmission.data[key], { modified: false });
+                  // Set values directly on components
+                  Object.keys(ehrSubmission.data).forEach(key => {
+                    const value = ehrSubmission.data[key];
+                    // Only set primitive values (string, number, boolean) or arrays
+                    if (value !== null && value !== undefined && 
+                        (typeof value !== 'object' || Array.isArray(value))) {
+                      const component = formInstance.getComponent(key);
+                      if (component) {
+                        component.setValue(value, { modified: false });
                       }
-                    });
-                  }
-                } else if (ehrSubmission && e) {
-                  // Fallback: apply EHR submission directly if mergedSubmission not ready
-                  debugLog("Form ready, applying EHR submission:", ehrSubmission);
-                  
-                  // Merge with existing form data (which might include draft data)
-                  const existingData = e.data || {};
-                  const mergedData = { ...existingData, ...ehrSubmission.data };
-                  
-                  // Set submission on form instance (critical for Form.io)
-                  const submissionObj = { data: mergedData };
-                  e.submission = submissionObj;
-                  e.data = mergedData;
-                  
-                  // Also update draftData state if we're in draft edit mode
-                  if (isDraftEdit) {
-                    setDraftData({ data: mergedData });
-                    debugLog("Updated draft data with EHR patient information");
-                  }
-                  
-                  // Set values on individual components (this is critical for Form.io)
-                  if (ehrSubmission.data) {
-                    Object.keys(ehrSubmission.data).forEach(key => {
-                      const component = e.getComponent(key);
-                      if (component && ehrSubmission.data[key] !== undefined && ehrSubmission.data[key] !== null && ehrSubmission.data[key] !== '') {
-                        debugLog(`Setting value for component ${key}:`, ehrSubmission.data[key]);
-                        component.setValue(ehrSubmission.data[key], { modified: false });
-                      }
-                    });
-                  }
+                    }
+                  });
                 }
               }}
               onSubmit={(data) => {
