@@ -113,13 +113,7 @@
         redirectUrl.searchParams.set('isEHR', 'true');
         finalRedirectUri = redirectUrl.toString();
         
-        console.log('Launching SMART OAuth with:', {
-          client_id: config.clientId,
-          redirect_uri: finalRedirectUri,
-          scope: config.scope,
-          iss: iss,
-          launch: launch
-        });
+        // Launch SMART OAuth flow
         
         FHIR.oauth2.authorize({
           client_id: config.clientId,

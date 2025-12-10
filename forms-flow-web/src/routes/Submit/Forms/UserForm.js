@@ -307,13 +307,7 @@ const View = React.memo((props) => {
 
   // EHR Integration: Fetch patient data when form is loaded (check session storage only)
   useEffect(() => {
-    // Always log to help diagnose issues
-    console.log("=== EHR Integration useEffect triggered ===");
-    console.log("Form ID:", form?._id);
-    console.log("Form object:", form);
-    
     if (!form?._id) {
-      console.log("No form ID, skipping EHR integration");
       return;
     }
     
@@ -323,55 +317,34 @@ const View = React.memo((props) => {
     const storedLaunch = sessionStorage.getItem('epic_launch');
     const storedIsEHR = sessionStorage.getItem('epic_isEHR');
     
-    console.log("Session storage values:", {
-      epic_iss: storedIss,
-      epic_code: storedCode,
-      epic_launch: storedLaunch,
-      epic_isEHR: storedIsEHR
-    });
-    
     // Has EHR context if we have iss and (code OR launch) in session storage, OR isEHR flag
     const hasEhrContext = storedIsEHR === 'true' || (storedIss && (storedCode || storedLaunch));
     
-    console.log("Has EHR context:", hasEhrContext);
-    
     if (!hasEhrContext) {
-      console.log("No EHR context detected in session storage - skipping patient data fetch");
       debugLog("No EHR context detected in session storage - skipping patient data fetch");
-      debugLog("Session storage values - iss:", storedIss, "code:", storedCode, "launch:", storedLaunch, "isEHR:", storedIsEHR);
       return;
     }
     
     // Get SMART config
     const smartConfig = getSMARTConfig();
-    console.log("SMART config:", smartConfig);
     
     if (!smartConfig.clientId) {
-      console.warn("EHR Integration: SMART client ID not configured");
       debugWarn("EHR Integration: SMART client ID not configured");
       return;
     }
     
-    console.log("=== Starting EHR Integration ===");
-    console.log("EHR context detected - fetching patient data");
-    console.log("Session storage - iss:", storedIss, "code:", storedCode);
-    debugLog("=== Starting EHR Integration ===");
     debugLog("EHR context detected - fetching patient data");
-    debugLog("Session storage - iss:", storedIss, "code:", storedCode);
     setEhrError(null);
     
     // Call launchSMART - it may return null, a Promise, or redirect
-    console.log("Calling launchSMART with config:", smartConfig);
     const smartClientPromise = launchSMART(
       smartConfig.clientId,
       smartConfig.redirectUri,
       smartConfig.scope
     );
-    console.log("launchSMART returned:", smartClientPromise);
     
     // If launchSMART returns null, it means no EHR launch context - silently skip
     if (!smartClientPromise) {
-      console.log("No EHR launch context available, form will load without patient data");
       debugLog("No EHR launch context available, form will load without patient data");
       return;
     }
@@ -380,46 +353,26 @@ const View = React.memo((props) => {
     // so this might not execute)
     Promise.resolve(smartClientPromise)
       .then((fhirClient) => {
-        console.log("FHIR client received:", fhirClient);
         if (!fhirClient) {
-          console.log("SMART client not available, form will load without patient data");
           debugLog("SMART client not available, form will load without patient data");
           return null;
         }
-        console.log("SMART client initialized");
         debugLog("SMART client initialized");
-        console.log("Calling fetchPatientData with client:", fhirClient);
-        const patientDataPromise = fetchPatientData(fhirClient);
-        console.log("fetchPatientData returned promise:", patientDataPromise);
-        return patientDataPromise;
+        return fetchPatientData(fhirClient);
       })
       .then((patientData) => {
-        console.log("=== Inside patientData .then() ===");
-        console.log("Patient data received:", patientData);
         if (!patientData) {
-          console.log("No patient data returned");
           return;
         }
-        console.log("Patient data fetched:", patientData.patient);
         debugLog("Patient data fetched:", patientData.patient);
         // Clear any previous errors since we successfully fetched patient data
         setEhrError(null);
         
         // Map patient demographics to form fields
-        console.log("Mapping patient data to form fields...");
-        console.log("Form object:", form);
-        console.log("Form components:", form.components);
         const mappedData = mapPatientToFormio(patientData.patient, form);
         
-        console.log("=== EHR Mapping Debug ===");
-        console.log("Patient data from EHR:", patientData.patient);
-        console.log("Form schema:", form);
-        console.log("Mapped form data:", mappedData);
-        console.log("Form field keys:", form.components?.map(c => c.key).filter(Boolean));
-        console.log("Number of mapped fields:", Object.keys(mappedData).length);
         debugLog("=== EHR Mapping Debug ===");
         debugLog("Patient data from EHR:", patientData.patient);
-        debugLog("Form schema:", form);
         debugLog("Mapped form data:", mappedData);
         debugLog("Form field keys:", form.components?.map(c => c.key).filter(Boolean));
         debugLog("Number of mapped fields:", Object.keys(mappedData).length);
@@ -429,56 +382,43 @@ const View = React.memo((props) => {
           data: mappedData
         };
         
-        console.log("Setting EHR submission:", submissionData);
-        console.log("formRef.current exists:", !!formRef.current);
         debugLog("Setting EHR submission:", submissionData);
         setEhrSubmission(submissionData);
         
         // If form is already rendered, update it directly
         if (formRef.current) {
-          console.log("Form already rendered, updating submission directly");
           debugLog("Form already rendered, updating submission directly");
           // Merge with existing form data (which might include draft data)
           const existingData = formRef.current.data || {};
           const mergedData = { ...existingData, ...mappedData };
-          console.log("Merged data to set on form:", mergedData);
           formRef.current.data = mergedData;
           formRef.current.submission = { data: mergedData };
           
           // Also update draftData state if we're in draft edit mode
           if (isDraftEdit) {
             setDraftData({ data: mergedData });
-            console.log("Updated draft data with EHR patient information");
             debugLog("Updated draft data with EHR patient information");
           }
-        } else {
-          console.log("Form not yet rendered, will apply when formReady is called");
         }
       })
       .catch((err) => {
-        console.error("Error fetching patient data from EHR:", err);
-        console.error("Error stack:", err.stack);
         debugError("Error fetching patient data from EHR:", err);
         // Only show error if it's not a "must be launched from Epic" error when we have isEHR
         // This error is shown during initial launch setup, not when patient data fetch fails
         const errorMessage = err.message || "Failed to fetch patient data from EHR system";
-        console.error("Error message:", errorMessage);
         if (errorMessage.includes("must be launched from Epic")) {
           // This is expected during initial launch - don't show error
-          console.log("EHR launch in progress, waiting for OAuth redirect...");
           debugLog("EHR launch in progress, waiting for OAuth redirect...");
           return;
         }
         // Don't set error if it's a redirect (which means OAuth is in progress)
         if (errorMessage.includes("redirect") || errorMessage.includes("OAuth")) {
-          console.log("EHR OAuth flow in progress...");
           debugLog("EHR OAuth flow in progress...");
           return;
         }
-        console.error("Setting EHR error:", errorMessage);
         setEhrError(errorMessage);
       });
-  }, [form?._id]);
+  }, [form?._id, isDraftEdit]);
 
   // Compute merged submission whenever ehrSubmission, draftData, or submission changes
   useEffect(() => {
@@ -747,10 +687,6 @@ const View = React.memo((props) => {
               formReady={(e) => {
                 formRef.current = e;
                 debugLog("Form ready callback triggered");
-                debugLog("Current ehrSubmission:", ehrSubmission);
-                debugLog("Current mergedSubmission:", mergedSubmission);
-                debugLog("Form instance data:", e.data);
-                debugLog("Form instance submission:", e.submission);
                 
                 // Apply merged submission if available (matches FormPreview.js pattern)
                 if (mergedSubmission && e) {
@@ -775,14 +711,10 @@ const View = React.memo((props) => {
                   const existingData = e.data || {};
                   const mergedData = { ...existingData, ...ehrSubmission.data };
                   
-                  debugLog("Merged data to apply:", mergedData);
-                  
                   // Set submission on form instance (critical for Form.io)
                   const submissionObj = { data: mergedData };
                   e.submission = submissionObj;
                   e.data = mergedData;
-                  
-                  debugLog("Set form instance submission to:", submissionObj);
                   
                   // Also update draftData state if we're in draft edit mode
                   if (isDraftEdit) {
