@@ -302,9 +302,10 @@ const View = React.memo((props) => {
   // EHR Integration: Fetch patient data when form is loaded (check session storage only)
   useEffect(() => {
     if (!form?._id) {
+      console.log("Form not loaded yet");
       return;
     }
-    
+    console.log("Form loaded");
     // Check session storage for EHR launch parameters (no query parameter check)
     const storedIss = sessionStorage.getItem('epic_iss');
     const storedCode = sessionStorage.getItem('epic_code');
@@ -403,10 +404,37 @@ const View = React.memo((props) => {
         debugLog("Setting EHR submission:", submissionData);
         setEhrSubmission(submissionData);
         
-        // If form is already rendered, update it directly (simple like FormPreview.js)
+        // If form is already rendered, update it directly
         if (formRef.current) {
           debugLog("Form already rendered, updating submission directly");
           formRef.current.submission = submissionData;
+          
+          // CRITICAL: Set values on individual components to update UI
+          if (typeof formRef.current.getComponent === 'function') {
+            let componentsSet = 0;
+            let componentsNotFound = 0;
+            Object.keys(submissionData.data).forEach(key => {
+              const value = submissionData.data[key];
+              if (value !== null && value !== undefined && typeof value !== 'object') {
+                const component = formRef.current.getComponent(key);
+                if (component) {
+                  component.setValue(value, { modified: false });
+                  componentsSet++;
+                } else {
+                  componentsNotFound++;
+                  debugLog(`Component not found for key "${key}"`);
+                }
+              }
+            });
+            debugLog(`Set values on ${componentsSet} components, ${componentsNotFound} not found`);
+            
+            // Trigger form redraw/update if available
+            if (typeof formRef.current.redraw === 'function') {
+              formRef.current.redraw();
+            } else if (typeof formRef.current.render === 'function') {
+              formRef.current.render();
+            }
+          }
         }
       })
       .catch((err) => {
@@ -434,19 +462,41 @@ const View = React.memo((props) => {
       debugLog("EHR submission updated, applying to form:", ehrSubmission);
       formRef.current.submission = ehrSubmission;
       
-      // Try to set values directly on components
+      // CRITICAL: Set values directly on components to update UI
       if (typeof formRef.current.getComponent === 'function') {
+        let componentsSet = 0;
+        let componentsNotFound = 0;
+        const notFoundKeys = [];
+        
         Object.keys(ehrSubmission.data).forEach(key => {
           const value = ehrSubmission.data[key];
-          // Only set primitive values (string, number, boolean) or arrays
-          if (value !== null && value !== undefined && 
-              (typeof value !== 'object' || Array.isArray(value))) {
+          // Only set primitive values (string, number, boolean)
+          if (value !== null && value !== undefined && typeof value !== 'object') {
             const component = formRef.current.getComponent(key);
             if (component) {
               component.setValue(value, { modified: false });
+              debugLog(`  ✓ Set value for "${key}": ${value}`);
+              componentsSet++;
+            } else {
+              componentsNotFound++;
+              notFoundKeys.push(key);
+              debugLog(`  ✗ Component not found for key "${key}"`);
             }
           }
         });
+        
+        debugLog(`EHR submission update: ${componentsSet} components set, ` +
+          `${componentsNotFound} not found`);
+        if (notFoundKeys.length > 0) {
+          debugLog(`Components not found: ${notFoundKeys.join(', ')}`);
+        }
+        
+        // Trigger form redraw/update if available to ensure UI reflects changes
+        if (typeof formRef.current.redraw === 'function') {
+          formRef.current.redraw();
+        } else if (typeof formRef.current.render === 'function') {
+          formRef.current.render();
+        }
       }
     }
   }, [ehrSubmission]);
@@ -571,18 +621,34 @@ const View = React.memo((props) => {
                   debugLog("Setting submission on form instance:", ehrSubmission);
                   formInstance.submission = ehrSubmission;
                   
-                  // Set values directly on components
+                  // CRITICAL: Set values directly on components to update UI
+                  let componentsSet = 0;
+                  let componentsNotFound = 0;
                   Object.keys(ehrSubmission.data).forEach(key => {
                     const value = ehrSubmission.data[key];
-                    // Only set primitive values (string, number, boolean) or arrays
-                    if (value !== null && value !== undefined && 
-                        (typeof value !== 'object' || Array.isArray(value))) {
+                    // Only set primitive values (string, number, boolean)
+                    if (value !== null && value !== undefined && typeof value !== 'object') {
                       const component = formInstance.getComponent(key);
                       if (component) {
                         component.setValue(value, { modified: false });
+                        debugLog(`  ✓ Set value for "${key}": ${value}`);
+                        componentsSet++;
+                      } else {
+                        componentsNotFound++;
+                        debugLog(`  ✗ Component not found for key "${key}"`);
                       }
                     }
                   });
+                  
+                  debugLog(`Form ready: ${componentsSet} components set, ` +
+                    `${componentsNotFound} not found`);
+                  
+                  // Trigger form redraw/update if available
+                  if (typeof formInstance.redraw === 'function') {
+                    formInstance.redraw();
+                  } else if (typeof formInstance.render === 'function') {
+                    formInstance.render();
+                  }
                 }
               }}
               onSubmit={(data) => {

@@ -43,6 +43,7 @@ function safeString(value) {
  */
 export function mapPatientToFormio(patient, form) {
   if (!patient) {
+    console.log("No patient data available");
     return {};
   }
 
@@ -204,38 +205,112 @@ function mapToFormFields(patientData, components) {
   const matchedFields = [];
   const unmatchedFields = [];
   
-  // Recursively process components (handles nested components, panels, etc.)
-  const processComponents = (comps) => {
+  debugLog("=== Starting field mapping ===");
+  debugLog("Patient data keys available:", Object.keys(patientData).slice(0, 20));
+  
+  // Recursively process components (handles nested components, panels, wells, columns, etc.)
+  const processComponents = (comps, depth = 0) => {
     if (!Array.isArray(comps)) return;
     
+    debugLog(`${'  '.repeat(depth)}Processing ${comps.length} components at depth ${depth}`);
+    
     comps.forEach(component => {
-      if (component.key) {
+      // Skip container/layout components - they don't have input values
+      const isContainerComponent = ['panel', 'well', 'columns', 'tabs', 'container', 'fieldset', 'button'].includes(component.type);
+      
+      // Process component if it has a key and is not a container
+      // Also check if it's an input component (input: true or input not explicitly false)
+      const isInputComponent = component.input === true || component.input === undefined;
+      if (component.key && !isContainerComponent && isInputComponent) {
         const key = component.key;
+        const label = (component.label || '').toLowerCase();
         
         // Try exact match first
+        let matched = false;
         if (Object.prototype.hasOwnProperty.call(patientData, key)) {
           formData[key] = patientData[key];
           matchedFields.push({ field: key, value: patientData[key], method: 'exact' });
-          return;
+          const exactMatchMsg = `${'  '.repeat(depth)}  ✓ Exact match: "${key}" = "${patientData[key]}"`;
+          debugLog(exactMatchMsg);
+          matched = true;
         }
         
         // Try case-insensitive match
-        const lowerKey = key.toLowerCase();
-        for (const [patientKey, value] of Object.entries(patientData)) {
-          if (patientKey.toLowerCase() === lowerKey && value) {
-            formData[key] = value;
-            matchedFields.push({ field: key, value: value, method: 'case-insensitive', matchedKey: patientKey });
-            return;
+        if (!matched) {
+          const lowerKey = key.toLowerCase();
+          for (const [patientKey, value] of Object.entries(patientData)) {
+            if (patientKey.toLowerCase() === lowerKey && value) {
+              formData[key] = value;
+              matchedFields.push({ field: key, value: value, method: 'case-insensitive', matchedKey: patientKey });
+              debugLog(`${'  '.repeat(depth)}  ✓ Case-insensitive match: "${key}" (from "${patientKey}") = "${value}"`);
+              matched = true;
+              break;
+            }
           }
         }
         
-        // Try partial matching for common patterns
+        // Try label-based matching (important for generic keys like textField, textField1, etc.)
+        if (!matched && label) {
+          // Street address - "Street, Apartment No., P.O. Box, R.R. NO."
+          if ((label.includes('street') || label.includes('apartment') || label.includes('p.o.') || 
+               label.includes('p.o box') || label.includes('r.r.') || label.includes('rr no')) && 
+              patientData.addressLine1) {
+            formData[key] = patientData.addressLine1;
+            matchedFields.push({ field: key, value: patientData.addressLine1, method: 'label-street' });
+            matched = true;
+          }
+          // City/Town
+          else if ((label.includes('city') || label.includes('town')) && patientData.city) {
+            formData[key] = patientData.city;
+            matchedFields.push({ field: key, value: patientData.city, method: 'label-city' });
+            matched = true;
+          }
+          // Province / Country
+          else if (label.includes('province') && label.includes('country')) {
+            const provinceCountry = patientData.state && patientData.country ? 
+              `${patientData.state} / ${patientData.country}` : 
+              (patientData.state || patientData.country || '');
+            if (provinceCountry) {
+              formData[key] = provinceCountry;
+              matchedFields.push({ field: key, value: provinceCountry, method: 'label-provincecountry' });
+              matched = true;
+            }
+          }
+          // Postal Code
+          else if (label.includes('postal') && label.includes('code') && patientData.postalCode) {
+            formData[key] = patientData.postalCode;
+            matchedFields.push({ field: key, value: patientData.postalCode, method: 'label-postalcode' });
+            matched = true;
+          }
+          // Day Phone No.
+          else if (label.includes('day') && label.includes('phone') && patientData.phone) {
+            formData[key] = patientData.phone;
+            matchedFields.push({ field: key, value: patientData.phone, method: 'label-dayphone' });
+            matched = true;
+          }
+          // Alternate Phone No
+          else if (label.includes('alternate') && label.includes('phone') && patientData.phone) {
+            // Note: alternate phone not in base patientData, would need to be added
+            // For now, skip or use primary phone as fallback
+          }
+          // E-mail Address
+          else if ((label.includes('e-mail') || label.includes('email')) && patientData.email) {
+            formData[key] = patientData.email;
+            matchedFields.push({ field: key, value: patientData.email, method: 'label-email' });
+            matched = true;
+          }
+        }
+        
+        // Try partial matching for common patterns (only if not already matched)
         // e.g., "patientFirstName" matches "firstName"
         let partialMatch = false;
-        if (lowerKey.includes('first') && lowerKey.includes('name')) {
+        if (!matched) {
+          const lowerKey = key.toLowerCase();
+          if (lowerKey.includes('first') && lowerKey.includes('name')) {
           if (patientData.firstName) {
             formData[key] = patientData.firstName;
             matchedFields.push({ field: key, value: patientData.firstName, method: 'partial-firstname' });
+            debugLog(`${'  '.repeat(depth)}  ✓ Partial match (firstname): "${key}" = "${patientData.firstName}"`);
             partialMatch = true;
           }
         } else if (lowerKey.includes('last') && lowerKey.includes('name')) {
@@ -257,17 +332,31 @@ function mapToFormFields(patientData, components) {
             partialMatch = true;
           }
         } else if (lowerKey.includes('phone')) {
-          if (patientData.phone) {
+          // Check for dayPhoneNo, alternatePhoneNo, etc.
+          if (lowerKey.includes('day') || lowerKey.includes('phoneno') || lowerKey === 'dayphoneno') {
+            if (patientData.phone) {
+              formData[key] = patientData.phone;
+              matchedFields.push({ field: key, value: patientData.phone, method: 'partial-dayphone' });
+              partialMatch = true;
+            }
+          } else if (lowerKey.includes('alternate')) {
+            // Alternate phone - would need to be in patientData
+            // For now, skip or use primary phone
+          } else if (patientData.phone) {
             formData[key] = patientData.phone;
             matchedFields.push({ field: key, value: patientData.phone, method: 'partial-phone' });
             partialMatch = true;
           }
-        } else if (lowerKey.includes('email')) {
+        } else if (lowerKey.includes('email') || lowerKey.includes('mail')) {
+          // Handle eMailAddress, emailAddress, etc.
           if (patientData.email) {
             formData[key] = patientData.email;
             matchedFields.push({ field: key, value: patientData.email, method: 'partial-email' });
             partialMatch = true;
           }
+        } else if (lowerKey.includes('textfield')) {
+          // Generic textField keys - try to match by label if available
+          // This is handled above in label-based matching
         } else if (lowerKey.includes('address') && (lowerKey.includes('1') || lowerKey.includes('line1'))) {
           if (patientData.addressLine1) {
             formData[key] = patientData.addressLine1;
@@ -316,16 +405,41 @@ function mapToFormFields(patientData, components) {
             matchedFields.push({ field: key, value: patientData.medicalRecordNumber, method: 'partial-mrn' });
             partialMatch = true;
           }
+          }
         }
         
-        if (!partialMatch) {
+        if (!matched && !partialMatch) {
           unmatchedFields.push(key);
         }
       }
       
-      // Process nested components (for panels, columns, etc.)
-      if (component.components && Array.isArray(component.components)) {
-        processComponents(component.components);
+      // IMPORTANT: Process nested structures in the correct order
+      // Always process nested components, even for container components
+      // 1. First, process columns structure (columns have a 'columns' array, each with 'components')
+      if (component.type === 'columns' && component.columns && Array.isArray(component.columns)) {
+        debugLog(`${'  '.repeat(depth)}Found columns component "${component.key || 'unnamed'}" with ${component.columns.length} columns`);
+        component.columns.forEach((column, colIdx) => {
+          if (column.components && Array.isArray(column.components)) {
+            debugLog(`${'  '.repeat(depth)}  Processing column ${colIdx + 1} with ${column.components.length} components`);
+            processComponents(column.components, depth + 1);
+          }
+        });
+      }
+      // 2. Then process standard nested components (for panels, wells, tabs, etc.)
+      // Note: Columns components might also have a components array, but we prioritize columns
+      else if (component.components && Array.isArray(component.components)) {
+        debugLog(`${'  '.repeat(depth)}Found nested components in "${component.key || component.type || 'unnamed'}" (${component.components.length} components)`);
+        processComponents(component.components, depth + 1);
+      }
+      // 3. Handle tabs structure (tabs have a 'tabs' array, each with 'components')
+      else if (component.type === 'tabs' && component.tabs && Array.isArray(component.tabs)) {
+        debugLog(`${'  '.repeat(depth)}Found tabs component "${component.key || 'unnamed'}" with ${component.tabs.length} tabs`);
+        component.tabs.forEach((tab, tabIdx) => {
+          if (tab.components && Array.isArray(tab.components)) {
+            debugLog(`${'  '.repeat(depth)}  Processing tab ${tabIdx + 1} "${tab.label || tab.key || 'unnamed'}" with ${tab.components.length} components`);
+            processComponents(tab.components, depth + 1);
+          }
+        });
       }
     });
   };
