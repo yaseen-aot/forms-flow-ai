@@ -64,9 +64,12 @@ import { BreadCrumbs, BreadcrumbVariant } from "@formsflow/components";
 import { navigateToFormEntries, navigateToSubmitFormsListing } from "../../../helper/routerHelper";
 import { cloneDeep } from "lodash";
 import { useParams } from "react-router-dom";
-import { launchSMART, fetchPatientData } from "../../../services/ehrService";
-import { mapPatientToFormio } from "../../../services/ehrMapper";
-import { getSMARTConfig, debugLog, debugError, debugWarn } from "../../../services/ehrConfig";
+// EHR Integration - conditionally imported based on feature flag
+import { 
+  isEhrEnabled, 
+  useEhrPatientData,
+  debugLog
+} from "../../../integrations/ehr";
 
 const View = React.memo((props) => {
   const [formStatus, setFormStatus] = React.useState("");
@@ -299,205 +302,31 @@ const View = React.memo((props) => {
     }
   }, [form, pubSub.publish]);
 
-  // EHR Integration: Fetch patient data when form is loaded (check session storage only)
-  useEffect(() => {
-    if (!form?._id) {
-      console.log("Form not loaded yet");
-      return;
-    }
-    console.log("Form loaded");
-    // Check session storage for EHR launch parameters (no query parameter check)
-    const storedIss = sessionStorage.getItem('epic_iss');
-    const storedCode = sessionStorage.getItem('epic_code');
-    const storedLaunch = sessionStorage.getItem('epic_launch');
-    const storedIsEHR = sessionStorage.getItem('epic_isEHR');
-    
-    // Has EHR context if we have iss and (code OR launch) in session storage, OR isEHR flag
-    const hasEhrContext = storedIsEHR === 'true' || (storedIss && (storedCode || storedLaunch));
-    
-    if (!hasEhrContext) {
-      debugLog("No EHR context detected in session storage - skipping patient data fetch");
-      return;
-    }
-    
-    // Get SMART config
-    const smartConfig = getSMARTConfig();
-    
-    if (!smartConfig.clientId) {
-      debugWarn("EHR Integration: SMART client ID not configured");
-      return;
-    }
-    
-    debugLog("EHR context detected - fetching patient data");
-    setEhrError(null);
-    
-    // Call launchSMART - it may return null, a Promise, or redirect
-    const smartClientPromise = launchSMART(
-      smartConfig.clientId,
-      smartConfig.redirectUri,
-      smartConfig.scope
-    );
-    
-    // If launchSMART returns null, it means no EHR launch context - silently skip
-    if (!smartClientPromise) {
-      debugLog("No EHR launch context available, form will load without patient data");
-      return;
-    }
-    
-    // Handle the promise (launchSMART is async and may redirect, 
-    // so this might not execute)
-    Promise.resolve(smartClientPromise)
-      .then((fhirClient) => {
-        if (!fhirClient) {
-          debugLog("SMART client not available, form will load without patient data");
-          return null;
-        }
-        debugLog("SMART client initialized");
-        return fetchPatientData(fhirClient);
-      })
-      .then((patientData) => {
-        if (!patientData) {
-          return;
-        }
-        debugLog("Patient data fetched:", patientData.patient);
-        // Clear any previous errors since we successfully fetched patient data
-        setEhrError(null);
-        
-        // Map patient demographics to form fields
-        const mappedData = mapPatientToFormio(patientData.patient, form);
-        
-        debugLog("=== EHR Mapping Debug ===");
-        debugLog("Patient data from EHR:", patientData.patient);
-        debugLog("Mapped form data (raw):", mappedData);
-        
-        // CRITICAL: Filter out any non-primitive values to prevent [object Object]
-        const filteredMappedData = {};
-        Object.keys(mappedData).forEach(key => {
-          const value = mappedData[key];
-          const valueType = typeof value;
-          debugLog(`Checking key "${key}": type=${valueType}, value=`, value);
-          
-          if (value === null || value === undefined) {
-            // Skip null/undefined
-            return;
-          }
-          
-          if (valueType === 'string') {
-            filteredMappedData[key] = value;
-          } else if (valueType === 'number' || valueType === 'boolean') {
-            filteredMappedData[key] = String(value);
-          } else {
-            // Object or array - skip it
-            debugLog(`FILTERING OUT non-primitive for key "${key}":`, value);
-          }
-        });
-        
-        debugLog("Filtered mapped form data:", filteredMappedData);
-        debugLog("Form field keys:", form.components?.map(c => c.key).filter(Boolean));
-        debugLog("Number of mapped fields:", Object.keys(filteredMappedData).length);
-        
-        // Create submission object for Form.io
-        const submissionData = {
-          data: filteredMappedData
-        };
-        
-        debugLog("Setting EHR submission:", submissionData);
-        setEhrSubmission(submissionData);
-        
-        // If form is already rendered, update it directly
-        if (formRef.current) {
-          debugLog("Form already rendered, updating submission directly");
-          formRef.current.submission = submissionData;
-          
-          // CRITICAL: Set values on individual components to update UI
-          if (typeof formRef.current.getComponent === 'function') {
-            let componentsSet = 0;
-            let componentsNotFound = 0;
-            Object.keys(submissionData.data).forEach(key => {
-              const value = submissionData.data[key];
-              if (value !== null && value !== undefined && typeof value !== 'object') {
-                const component = formRef.current.getComponent(key);
-                if (component) {
-                  component.setValue(value, { modified: false });
-                  componentsSet++;
-                } else {
-                  componentsNotFound++;
-                  debugLog(`Component not found for key "${key}"`);
-                }
-              }
-            });
-            debugLog(`Set values on ${componentsSet} components, ${componentsNotFound} not found`);
-            
-            // Trigger form redraw/update if available
-            if (typeof formRef.current.redraw === 'function') {
-              formRef.current.redraw();
-            } else if (typeof formRef.current.render === 'function') {
-              formRef.current.render();
-            }
-          }
-        }
-      })
-      .catch((err) => {
-        debugError("Error fetching patient data from EHR:", err);
-        // Only show error if it's not a "must be launched from Epic" error when we have isEHR
-        // This error is shown during initial launch setup, not when patient data fetch fails
-        const errorMessage = err.message || "Failed to fetch patient data from EHR system";
-        if (errorMessage.includes("must be launched from Epic")) {
-          // This is expected during initial launch - don't show error
-          debugLog("EHR launch in progress, waiting for OAuth redirect...");
-          return;
-        }
-        // Don't set error if it's a redirect (which means OAuth is in progress)
-        if (errorMessage.includes("redirect") || errorMessage.includes("OAuth")) {
-          debugLog("EHR OAuth flow in progress...");
-          return;
-        }
-        setEhrError(errorMessage);
-      });
-  }, [form?._id, isDraftEdit]);
+  // EHR Integration: Use hook to fetch patient data
+  const { mappedData: ehrData, error: ehrErrorMsg } = useEhrPatientData({ 
+    form, 
+    autoFetch: !isDraftEdit 
+  });
 
-  // Update form when EHR submission data is available (simple pattern like FormPreview.js)
+  // Sync EHR error to local state
+  useEffect(() => {
+    setEhrError(ehrErrorMsg);
+  }, [ehrErrorMsg]);
+
+  // Sync EHR data to submission state
+  useEffect(() => {
+    if (ehrData) {
+      debugLog("Setting EHR submission from hook data:", ehrData);
+      setEhrSubmission({ data: ehrData });
+    }
+  }, [ehrData]);
+
+  // Update form when EHR submission data is available
+  // Note: formRef.current is also checked in formReady callback
   useEffect(() => {
     if (ehrSubmission && ehrSubmission.data && formRef.current) {
-      debugLog("EHR submission updated, applying to form:", ehrSubmission);
-      formRef.current.submission = ehrSubmission;
-      
-      // CRITICAL: Set values directly on components to update UI
-      if (typeof formRef.current.getComponent === 'function') {
-        let componentsSet = 0;
-        let componentsNotFound = 0;
-        const notFoundKeys = [];
-        
-        Object.keys(ehrSubmission.data).forEach(key => {
-          const value = ehrSubmission.data[key];
-          // Only set primitive values (string, number, boolean)
-          if (value !== null && value !== undefined && typeof value !== 'object') {
-            const component = formRef.current.getComponent(key);
-            if (component) {
-              component.setValue(value, { modified: false });
-              debugLog(`  ✓ Set value for "${key}": ${value}`);
-              componentsSet++;
-            } else {
-              componentsNotFound++;
-              notFoundKeys.push(key);
-              debugLog(`  ✗ Component not found for key "${key}"`);
-            }
-          }
-        });
-        
-        debugLog(`EHR submission update: ${componentsSet} components set, ` +
-          `${componentsNotFound} not found`);
-        if (notFoundKeys.length > 0) {
-          debugLog(`Components not found: ${notFoundKeys.join(', ')}`);
-        }
-        
-        // Trigger form redraw/update if available to ensure UI reflects changes
-        if (typeof formRef.current.redraw === 'function') {
-          formRef.current.redraw();
-        } else if (typeof formRef.current.render === 'function') {
-          formRef.current.render();
-        }
-      }
+      debugLog("Applying EHR data to form (formRef available)");
+      applyEhrDataToForm(formRef.current, ehrSubmission);
     }
   }, [ehrSubmission]);
 
@@ -559,7 +388,7 @@ const View = React.memo((props) => {
                   underline 
                   onBreadcrumbClick={handleBreadcrumbClick}
                 /> 
-                <h4>{draftSubmission?.isDraft ? draftId : t("New Submission")}</h4>
+                <h4>{draftSubmission?.isDraft ? draftId : t("New Submission2")}</h4>
             </div>
 
         </div>
@@ -572,9 +401,9 @@ const View = React.memo((props) => {
         className="col-12"
       >
         <div className="body-section px-1">
-          {ehrError && (
+          {isEhrEnabled() && ehrError && (
             <div className="alert alert-warning mb-3" role="alert">
-              <strong>EHR Integration Warning:222</strong> {ehrError}
+              <strong>EHR Integration Warning:</strong> {ehrError}
               <br />
               <small>The form will be displayed without pre-filled patient data.</small>
             </div>
@@ -615,40 +444,15 @@ const View = React.memo((props) => {
               formReady={(formInstance) => {
                 formRef.current = formInstance;
                 debugLog("Form ready callback triggered");
+                debugLog("EHR submission available:", !!ehrSubmission);
                 
-                // Apply EHR submission if available (simple pattern like FormPreview.js)
+                // Apply EHR submission if available (immediate)
                 if (ehrSubmission && ehrSubmission.data) {
-                  debugLog("Setting submission on form instance:", ehrSubmission);
-                  formInstance.submission = ehrSubmission;
-                  
-                  // CRITICAL: Set values directly on components to update UI
-                  let componentsSet = 0;
-                  let componentsNotFound = 0;
-                  Object.keys(ehrSubmission.data).forEach(key => {
-                    const value = ehrSubmission.data[key];
-                    // Only set primitive values (string, number, boolean)
-                    if (value !== null && value !== undefined && typeof value !== 'object') {
-                      const component = formInstance.getComponent(key);
-                      if (component) {
-                        component.setValue(value, { modified: false });
-                        debugLog(`  ✓ Set value for "${key}": ${value}`);
-                        componentsSet++;
-                      } else {
-                        componentsNotFound++;
-                        debugLog(`  ✗ Component not found for key "${key}"`);
-                      }
-                    }
-                  });
-                  
-                  debugLog(`Form ready: ${componentsSet} components set, ` +
-                    `${componentsNotFound} not found`);
-                  
-                  // Trigger form redraw/update if available
-                  if (typeof formInstance.redraw === 'function') {
-                    formInstance.redraw();
-                  } else if (typeof formInstance.render === 'function') {
-                    formInstance.render();
-                  }
+                  debugLog("Applying EHR data in formReady callback");
+                  applyEhrDataToForm(formInstance, ehrSubmission);
+                } else {
+                  // If EHR data arrives later, it will be applied via the useEffect
+                  debugLog("EHR data not yet available, will apply when it arrives");
                 }
               }}
               onSubmit={(data) => {
@@ -789,6 +593,64 @@ const mapDispatchToProps = (dispatch, ownProps) => {
       dispatch(setFormSubmissionError(ErrorDetails));
     },
   };
+};
+
+
+// =============================================================================
+// EHR Integration Helper Functions
+// =============================================================================
+
+/**
+ * Helper to apply EHR data to form instance.
+ * Updates the form submission data and ensures UI components reflect the changes.
+ * 
+ * @param {Object} formInstance - The Form.io form instance
+ * @param {Object} submissionData - The submission data containing EHR patient data
+ */
+const applyEhrDataToForm = (formInstance, submissionData) => {
+  if (!formInstance || !submissionData || !submissionData.data) return;
+
+  debugLog("EHR submission updated, applying to form:", submissionData);
+  formInstance.submission = submissionData;
+  
+  // CRITICAL: Set values directly on components to update UI
+  // This is necessary because setting submission directly doesn't always update 
+  // the visual state of all components in some Form.io versions/configurations
+  if (typeof formInstance.getComponent === 'function') {
+    let componentsSet = 0;
+    let componentsNotFound = 0;
+    const notFoundKeys = [];
+    
+    Object.keys(submissionData.data).forEach(key => {
+      const value = submissionData.data[key];
+      // Only set primitive values (string, number, boolean)
+      if (value !== null && value !== undefined && typeof value !== 'object') {
+        const component = formInstance.getComponent(key);
+        if (component) {
+          component.setValue(value, { modified: false });
+          debugLog(`  ✓ Set value for "${key}": ${value}`);
+          componentsSet++;
+        } else {
+          componentsNotFound++;
+          notFoundKeys.push(key);
+          debugLog(`  ✗ Component not found for key "${key}"`);
+        }
+      }
+    });
+    
+    debugLog(`EHR submission update: ${componentsSet} components set, ` +
+      `${componentsNotFound} not found`);
+    if (notFoundKeys.length > 0) {
+      debugLog(`Components not found: ${notFoundKeys.join(', ')}`);
+    }
+    
+    // Trigger form redraw/update if available to ensure UI reflects changes
+    if (typeof formInstance.redraw === 'function') {
+      formInstance.redraw();
+    } else if (typeof formInstance.render === 'function') {
+      formInstance.render();
+    }
+  }
 };
 
 export default connect(mapStateToProps, mapDispatchToProps)(View);

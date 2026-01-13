@@ -4,7 +4,7 @@
  * Based on the Foundry project implementation
  */
 
-import { debugLog, debugError, debugWarn } from './ehrConfig';
+import { debugLog, debugError, debugWarn } from './config';
 
 /**
  * Initialize and launch SMART on FHIR client
@@ -344,4 +344,3 @@ function parseFhirError(error) {
   // Return original error message
   return error.message || 'Unknown error occurred';
 }
-

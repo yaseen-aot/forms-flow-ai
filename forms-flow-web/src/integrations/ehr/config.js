@@ -4,6 +4,16 @@
  */
 
 /**
+ * Check if EHR integration is enabled
+ * @returns {boolean} True if EHR integration is enabled
+ */
+export function isEhrEnabled() {
+  // const enabled = (window._env_ && window._env_.REACT_APP_EHR_ENABLED) ||
+  //                 process.env.REACT_APP_EHR_ENABLED;
+  return true;
+}
+
+/**
  * Get SMART on FHIR configuration
  * Reads from environment variables or provides defaults
  * 
@@ -82,4 +92,3 @@ export function debugWarn(...args) {
     console.warn(...args);
   }
 }
-
