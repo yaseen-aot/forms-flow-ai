@@ -1,0 +1,1810 @@
+"""Report resource for displaying immudb audit logs with enhanced search and JSON viewer."""
+
+import json
+import re
+from flask import Blueprint, render_template_string, request, jsonify
+from formsflow_api.services.ehr.immudb_service import ImmudbService
+import html
+
+REPORT = Blueprint("report", __name__, url_prefix="/report")
+
+# HTML template for server-side rendered report page
+REPORT_TEMPLATE = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Audit Logs Report</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            color: #333;
+            margin: 0;
+            padding: 0;
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+            min-height: 100vh;
+        }
+
+        .header {
+            background: white;
+            padding: 40px;
+            border-radius: 20px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            margin-bottom: 30px;
+            backdrop-filter: blur(20px);
+            background: rgba(255, 255, 255, 0.98);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .header::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 4px;
+            background: linear-gradient(90deg, #667eea 0%, #764ba2 50%, #667eea 100%);
+            background-size: 200% 100%;
+            animation: gradientShift 3s ease-in-out infinite;
+        }
+
+        @keyframes gradientShift {
+            0% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
+            100% { background-position: 0% 50%; }
+        }
+
+        .header h1 {
+            color: #2c3e50;
+            margin-bottom: 15px;
+            font-size: 2.8rem;
+            font-weight: 800;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            text-align: center;
+            position: relative;
+        }
+
+        .header h1::after {
+            content: '';
+            position: absolute;
+            bottom: -10px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 100px;
+            height: 3px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 2px;
+        }
+
+        .header .subtitle {
+            color: #6c757d;
+            font-size: 1.2rem;
+            margin-bottom: 40px;
+            text-align: center;
+            font-weight: 400;
+        }
+
+        .search-form {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 30px;
+            margin-bottom: 0;
+            padding: 35px;
+            background: linear-gradient(135deg, rgba(102, 126, 234, 0.05) 0%, rgba(118, 75, 162, 0.05) 100%);
+            border-radius: 16px;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(102, 126, 234, 0.1);
+            position: relative;
+        }
+
+        .search-form::before {
+            content: '';
+            position: absolute;
+            top: -1px;
+            left: -1px;
+            right: -1px;
+            bottom: -1px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 50%, #667eea 100%);
+            border-radius: 16px;
+            z-index: -1;
+            opacity: 0.1;
+        }
+
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            position: relative;
+            transition: transform 0.3s ease;
+        }
+
+        .form-group:hover {
+            transform: translateY(-2px);
+        }
+
+        .form-group label {
+            font-weight: 700;
+            margin-bottom: 12px;
+            color: #495057;
+            font-size: 0.9rem;
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .form-group label i {
+            color: #667eea;
+            font-size: 0.9rem;
+        }
+
+        .form-group input, .form-group select {
+            padding: 16px 20px;
+            border: 2px solid rgba(102, 126, 234, 0.15);
+            border-radius: 12px;
+            font-size: 14px;
+            transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+        }
+
+        .form-group input:focus, .form-group select:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 4px rgba(102, 126, 234, 0.15), 0 8px 25px rgba(102, 126, 234, 0.2);
+            transform: translateY(-3px);
+            background: rgba(255, 255, 255, 1);
+        }
+
+        .form-group input::placeholder {
+            color: #adb5bd;
+            font-style: italic;
+        }
+
+        .button-group {
+            display: flex;
+            gap: 20px;
+            align-items: center;
+            justify-content: center;
+            grid-column: span 2;
+            margin-top: 20px;
+        }
+
+        .btn {
+            padding: 16px 32px;
+            border: none;
+            border-radius: 12px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 700;
+            transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+            display: inline-flex;
+            align-items: center;
+            gap: 12px;
+            position: relative;
+            overflow: hidden;
+            min-width: 140px;
+            justify-content: center;
+        }
+
+        .btn::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+            transition: left 0.5s;
+        }
+
+        .btn:hover::before {
+            left: 100%;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            box-shadow: 0 8px 25px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 12px 35px rgba(102, 126, 234, 0.5);
+        }
+
+        .btn-primary:active {
+            transform: translateY(-1px);
+        }
+
+        .btn-secondary {
+            background: linear-gradient(135deg, #6c757d 0%, #495057 100%);
+            color: white;
+            box-shadow: 0 8px 25px rgba(108, 117, 125, 0.4);
+        }
+
+        .btn-secondary:hover {
+            background: linear-gradient(135deg, #5a6268 0%, #343a40 100%);
+            transform: translateY(-3px);
+            box-shadow: 0 12px 35px rgba(108, 117, 125, 0.5);
+        }
+
+        .btn-secondary:active {
+            transform: translateY(-1px);
+        }
+
+        .results {
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            overflow: hidden;
+            backdrop-filter: blur(20px);
+            background: rgba(255, 255, 255, 0.98);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            position: relative;
+            min-height: 200px;
+        }
+
+        /* Loading Overlay */
+        .loading-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(255, 255, 255, 0.8);
+            backdrop-filter: blur(3px);
+            display: none;
+            justify-content: center;
+            align-items: center;
+            z-index: 10;
+        }
+        
+        .loading-overlay.active {
+            display: flex;
+        }
+
+        .spinner {
+            width: 50px;
+            height: 50px;
+            border: 4px solid rgba(102, 126, 234, 0.1);
+            border-radius: 50%;
+            border-top: 4px solid #667eea;
+            animation: spin 1s linear infinite;
+        }
+
+        .results-header {
+            padding: 25px 35px;
+            background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+            border-bottom: 1px solid #dee2e6;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            position: relative;
+        }
+
+        .results-header::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 3px;
+            background: linear-gradient(90deg, #667eea 0%, #764ba2 50%, #667eea 100%);
+            background-size: 200% 100%;
+            animation: gradientShift 3s ease-in-out infinite;
+        }
+
+        .results-count {
+            font-weight: 700;
+            color: #495057;
+            font-size: 1.2rem;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .table-container {
+            overflow-x: auto;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            background: rgba(255, 255, 255, 0.98);
+            border-radius: 0;
+            overflow: hidden;
+        }
+
+        th, td {
+            padding: 20px 18px;
+            text-align: left;
+            border-bottom: 1px solid rgba(233, 236, 239, 0.8);
+            position: relative;
+        }
+
+        th {
+            background: linear-gradient(135deg, rgba(102, 126, 234, 0.12) 0%, rgba(118, 75, 162, 0.12) 100%);
+            font-weight: 700;
+            color: #495057;
+            position: sticky;
+            top: 0;
+            text-transform: uppercase;
+            font-size: 0.85rem;
+            letter-spacing: 0.8px;
+            backdrop-filter: blur(20px);
+            border-bottom: 2px solid rgba(102, 126, 234, 0.2);
+        }
+
+        tr:hover {
+            background: linear-gradient(135deg, rgba(102, 126, 234, 0.08) 0%, rgba(118, 75, 162, 0.08) 100%);
+            transform: scale(1.005);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.1);
+        }
+
+        tr:nth-child(even) {
+            background: rgba(248, 249, 250, 0.5);
+        }
+
+        tr:nth-child(even):hover {
+            background: linear-gradient(135deg, rgba(102, 126, 234, 0.08) 0%, rgba(118, 75, 162, 0.08) 100%);
+        }
+
+        .json-preview {
+            font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', 'Consolas', monospace;
+            font-size: 12px;
+            max-width: 350px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+            padding: 12px 16px;
+            border-radius: 8px;
+            border: 1px solid #e9ecef;
+            cursor: pointer;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            position: relative;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+        }
+
+        .json-preview:hover {
+            background: linear-gradient(135deg, #e9ecef 0%, #dee2e6 100%);
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(0,0,0,0.15);
+            border-color: #667eea;
+        }
+
+        .see-more-btn {
+            background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
+            color: white;
+            border: none;
+            padding: 6px 12px;
+            border-radius: 6px;
+            font-size: 11px;
+            cursor: pointer;
+            margin-left: 10px;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            box-shadow: 0 2px 8px rgba(40, 167, 69, 0.3);
+        }
+
+        .see-more-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(40, 167, 69, 0.4);
+        }
+
+        .see-more-btn:active {
+            transform: translateY(0);
+        }
+
+        .pagination {
+            padding: 20px 30px;
+            background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+            border-top: 1px solid #dee2e6;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .pagination-info {
+            color: #6c757d;
+            font-size: 14px;
+        }
+
+        .pagination-controls {
+            display: flex;
+            gap: 8px;
+        }
+
+        .pagination-controls button {
+            padding: 8px 12px;
+            border: 1px solid #dee2e6;
+            background: white;
+            cursor: pointer;
+            border-radius: 6px;
+            transition: all 0.3s ease;
+        }
+
+        .pagination-controls button:hover:not(:disabled) {
+            background: #667eea;
+            color: white;
+            border-color: #667eea;
+            transform: translateY(-1px);
+        }
+
+        .pagination-controls button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .pagination-controls button.active {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border-color: #667eea;
+        }
+
+        .no-results {
+            text-align: center;
+            padding: 80px 40px;
+            color: #6c757d;
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 16px;
+            margin: 20px 0;
+            display: none; /* Hidden by default, toggled via JS or server */
+        }
+        
+        /* Show when container has class empty */
+        .results.empty .table-container, 
+        .results.empty .pagination {
+            display: none;
+        }
+        
+        .results.empty .no-results {
+            display: block;
+        }
+
+        .no-results i {
+            font-size: 4rem;
+            margin-bottom: 25px;
+            color: #dee2e6;
+            opacity: 0.7;
+        }
+
+        .no-results h3 {
+            color: #495057;
+            margin-bottom: 15px;
+            font-size: 1.5rem;
+        }
+
+        .no-results p {
+            margin-bottom: 10px;
+            font-size: 1.1rem;
+            line-height: 1.6;
+        }
+
+        .search-suggestions {
+            background: rgba(102, 126, 234, 0.1);
+            border-radius: 12px;
+            padding: 20px;
+            margin-top: 20px;
+            border-left: 4px solid #667eea;
+        }
+
+        .search-suggestions h4 {
+            color: #667eea;
+            margin-bottom: 15px;
+            font-size: 1.1rem;
+        }
+
+        .search-suggestions ul {
+            text-align: left;
+            list-style: none;
+            padding: 0;
+        }
+
+        .search-suggestions li {
+            margin-bottom: 8px;
+            padding: 8px 12px;
+            background: rgba(255, 255, 255, 0.8);
+            border-radius: 6px;
+            font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+            font-size: 0.9rem;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #6c757d;
+        }
+
+        .loading i {
+            font-size: 2rem;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .error {
+            background: linear-gradient(135deg, #f8d7da 0%, #f5c6cb 100%);
+            color: #721c24;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            border-left: 4px solid #dc3545;
+        }
+
+        /* Highlighting */
+        .highlight {
+            background-color: yellow;
+            font-weight: bold;
+        }
+
+        /* Modal Styles */
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.5);
+            backdrop-filter: blur(5px);
+        }
+
+        .modal-content {
+            background-color: white;
+            margin: 2% auto;
+            padding: 0;
+            border-radius: 16px;
+            width: 95%;
+            max-width: 1200px;
+            max-height: 95vh;
+            overflow: hidden;
+            box-shadow: 0 25px 80px rgba(0,0,0,0.15);
+            animation: modalSlideIn 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+        }
+
+        @keyframes modalSlideIn {
+            from {
+                transform: translateY(-50px);
+                opacity: 0;
+            }
+            to {
+                transform: translateY(0);
+                opacity: 1;
+            }
+        }
+
+        .modal-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .modal-header h2 {
+            margin: 0;
+            font-size: 1.5rem;
+        }
+
+        .close {
+            color: white;
+            font-size: 28px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .close:hover {
+            transform: rotate(90deg);
+        }
+
+        .modal-body {
+            padding: 20px;
+            max-height: 70vh;
+            overflow-y: auto;
+        }
+
+        /* Enhanced JSON Tree Styles */
+        .json-tree {
+            font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', 'Consolas', monospace;
+            font-size: 14px;
+            line-height: 1.6;
+            background: #f8f9fa;
+            border-radius: 8px;
+            padding: 20px;
+            border: 1px solid #e9ecef;
+            overflow: auto;
+            max-height: 60vh;
+        }
+
+        .json-node {
+            margin-left: 0;
+            position: relative;
+        }
+
+        .json-node .json-node {
+            margin-left: 24px;
+            border-left: 1px dashed #dee2e6;
+            padding-left: 8px;
+        }
+
+        .json-key {
+            color: #0969da;
+            font-weight: 600;
+            margin-right: 6px;
+        }
+
+        .json-string {
+            color: #032f62;
+        }
+
+        .json-number {
+            color: #8250df;
+            font-weight: 500;
+        }
+
+        .json-boolean {
+            color: #cf222e;
+            font-weight: 600;
+        }
+
+        .json-null {
+            color: #6e7781;
+            font-style: italic;
+        }
+
+        .json-toggle {
+            cursor: pointer;
+            user-select: none;
+            color: #656d76;
+            margin-right: 8px;
+            transition: all 0.2s ease;
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            position: relative;
+            font-size: 12px;
+            font-weight: bold;
+        }
+
+        .json-toggle:hover {
+            color: #0969da;
+            transform: scale(1.1);
+        }
+
+        .json-toggle.collapsed::before {
+            content: '▶';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+        }
+
+        .json-toggle:not(.collapsed)::before {
+            content: '▼';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+        }
+
+        .json-collapsed {
+            display: none;
+        }
+
+        .json-bracket {
+            color: #24292f;
+            font-weight: 600;
+        }
+
+        .json-comma {
+            color: #656d76;
+            margin-right: 4px;
+        }
+
+        .json-controls {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 15px;
+            flex-wrap: wrap;
+        }
+
+        .json-btn {
+            background: linear-gradient(135deg, #f6f8fa 0%, #e9ecef 100%);
+            color: #24292f;
+            border: 1px solid #d0d7de;
+            padding: 6px 12px;
+            border-radius: 6px;
+            font-size: 12px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-family: inherit;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .json-btn:hover {
+            background: linear-gradient(135deg, #f3f4f6 0%, #e5e7eb 100%);
+            border-color: #9ca3af;
+            transform: translateY(-1px);
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .json-btn:active {
+            transform: translateY(0);
+        }
+
+        .json-btn i {
+            font-size: 10px;
+        }
+
+        .copy-btn {
+            background: linear-gradient(135deg, #0969da 0%, #0550ae 100%);
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 6px;
+            font-size: 12px;
+            cursor: pointer;
+            margin-bottom: 15px;
+            transition: all 0.3s ease;
+            font-family: inherit;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .copy-btn:hover {
+            background: linear-gradient(135deg, #0550ae 0%, #033d8b 100%);
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(9, 105, 218, 0.3);
+        }
+
+        .copy-btn.copied {
+            background: linear-gradient(135deg, #1a7f37 0%, #0d5f2d 100%);
+        }
+
+        .json-line {
+            display: block;
+            padding: 2px 0;
+            transition: background-color 0.2s ease;
+        }
+
+        .json-line:hover {
+            background-color: rgba(9, 105, 218, 0.05);
+            border-radius: 4px;
+        }
+
+        .json-summary {
+            color: #6e7781;
+            font-style: italic;
+            font-size: 0.9em;
+            margin-left: 8px;
+        }
+
+        .json-modal-content {
+            background: white;
+            margin: 2% auto;
+            padding: 0;
+            border-radius: 16px;
+            width: 95%;
+            max-width: 1200px;
+            max-height: 95vh;
+            overflow: hidden;
+            box-shadow: 0 25px 80px rgba(0,0,0,0.15);
+            animation: modalSlideIn 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1><i class="fas fa-chart-line"></i> Audit Logs Report</h1>
+            <p class="subtitle">Search and analyze audit  data with advanced filtering capabilities</p>
+            <form id="searchForm" class="search-form">
+                <div class="form-group">
+                    <label for="tenant_id"><i class="fas fa-building"></i> Tenant ID</label>
+                    <input type="text" id="tenant_id" name="tenant_id" value="{{ search_params.get('tenant_id', '') }}" placeholder="Enter tenant ID">
+                </div>
+                <div class="form-group">
+                    <label for="event_name"><i class="fas fa-event"></i> Event Name</label>
+                    <input type="text" id="event_name" name="event_name" value="{{ search_params.get('event_name', '') }}" placeholder="Enter event name">
+                </div>
+                <div class="form-group">
+                    <label for="user_id"><i class="fas fa-user"></i> User ID</label>
+                    <input type="text" id="user_id" name="user_id" value="{{ search_params.get('user_id', '') }}" placeholder="Enter user ID">
+                </div>
+                <div class="form-group">
+                    <label for="date_from"><i class="fas fa-calendar-alt"></i> Date From</label>
+                    <input type="datetime-local" id="date_from" name="date_from" value="{{ search_params.get('date_from', '') }}">
+                </div>
+                <div class="form-group">
+                    <label for="date_to"><i class="fas fa-calendar-alt"></i> Date To</label>
+                    <input type="datetime-local" id="date_to" name="date_to" value="{{ search_params.get('date_to', '') }}">
+                </div>
+                <div class="form-group">
+                    <label for="search_text"><i class="fas fa-search"></i> Search in Data</label>
+                    <input type="text" id="search_text" name="search_text" value="{{ search_params.get('search_text', '') }}" placeholder="Search in request/response data">
+                </div>
+                <div class="form-group">
+                    <label for="per_page"><i class="fas fa-list"></i> Per Page</label>
+                    <select id="per_page" name="per_page">
+                        <option value="10" {% if search_params.get('per_page') == '10' %}selected{% endif %}>10</option>
+                        <option value="25" {% if search_params.get('per_page') == '25' %}selected{% endif %}>25</option>
+                        <option value="50" {% if search_params.get('per_page') == '50' %}selected{% endif %}>50</option>
+                        <option value="100" {% if search_params.get('per_page') == '100' %}selected{% endif %}>100</option>
+                    </select>
+                </div>
+                <div class="button-group">
+                    <button type="submit" class="btn btn-primary">
+                        <i class="fas fa-search"></i> Search
+                    </button>
+                    <button type="button" class="btn btn-secondary" onclick="clearForm()">
+                        <i class="fas fa-times"></i> Clear
+                    </button>
+                </div>
+            </form>
+        </div>
+
+        {% if error %}
+        <div class="error"><i class="fas fa-exclamation-triangle"></i> {{ error }}</div>
+        {% endif %}
+
+        <div class="results {% if not results and not error %}empty{% endif %}" id="resultsContainer">
+            <div class="loading-overlay" id="loadingOverlay">
+                <div class="spinner"></div>
+            </div>
+            
+            <div class="results-header">
+                <div class="results-count" id="resultsCount">
+                    {% if total_count > 0 %}
+                        <i class="fas fa-database"></i> Showing {{ start_item }}-{{ end_item }} of {{ total_count }} results
+                    {% else %}
+                        <i class="fas fa-info-circle"></i> No results found
+                    {% endif %}
+                </div>
+            </div>
+
+            <div class="table-container">
+                <table id="resultsTable">
+                    <thead>
+                        <tr>
+                            <th><i class="fas fa-hashtag"></i> ID</th>
+                            <th><i class="fas fa-clock"></i> Created At</th>
+                            <th><i class="fas fa-building"></i> Tenant ID</th>
+                            <th><i class="fas fa-event"></i> Event Name</th>
+                            <th><i class="fas fa-user"></i> User ID</th>
+                            <th><i class="fas fa-upload"></i> Request Data</th>
+                            <th><i class="fas fa-download"></i> Response Data</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% if results %}
+                            {% for row in results %}
+                            <tr>
+                                <td><strong>{{ row[0] }}</strong></td>
+                                <td>{{ row[6] }}</td>
+                                <td>{{ row[1] or '' }}</td>
+                                <td>{{ row[2] or '' }}</td>
+                                <td>{{ row[3] or '' }}</td>
+                                <td>
+                                    <div class="json-preview" onclick="showJsonModal('Request Data', '{{ row[4] | replace('"', '\\"') | replace("'", "\\'") | replace('\n', '\\n') | replace('\r', '\\r') }}')">
+                                        {{ row[4] | safe if row[4] else '' }}
+                                    </div>
+                                    {% if row[4] and row[4]|length > 100 %}
+                                    <button class="see-more-btn" onclick="showJsonModal('Request Data', '{{ row[4] | replace('"', '\\"') | replace("'", "\\'") | replace('\n', '\\n') | replace('\r', '\\r') }}')">
+                                        <i class="fas fa-expand"></i> See More
+                                    </button>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    <div class="json-preview" onclick="showJsonModal('Response Data', '{{ row[5] | replace('"', '\\"') | replace("'", "\\'") | replace('\n', '\\n') | replace('\r', '\\r') }}')">
+                                        {{ row[5] | safe if row[5] else '' }}
+                                    </div>
+                                    {% if row[5] and row[5]|length > 100 %}
+                                    <button class="see-more-btn" onclick="showJsonModal('Response Data', '{{ row[5] | replace('"', '\\"') | replace("'", "\\'") | replace('\n', '\\n') | replace('\r', '\\r') }}')">
+                                        <i class="fas fa-expand"></i> See More
+                                    </button>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        {% endif %}
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="pagination" id="paginationContainer">
+                {% if total_pages > 1 %}
+                <div class="pagination-info">
+                    <i class="fas fa-file-alt"></i> Page {{ current_page }} of {{ total_pages }}
+                </div>
+                <div class="pagination-controls">
+                    {% if current_page > 1 %}
+                        <button onclick="goToPage({{ current_page - 1 }})"><i class="fas fa-chevron-left"></i> Previous</button>
+                    {% endif %}
+
+                    {% for page_num in page_range %}
+                        {% if page_num == current_page %}
+                            <button class="active">{{ page_num }}</button>
+                        {% elif page_num == '...' %}
+                            <button disabled>...</button>
+                        {% else %}
+                            <button onclick="goToPage({{ page_num }})">{{ page_num }}</button>
+                        {% endif %}
+                    {% endfor %}
+
+                    {% if current_page < total_pages %}
+                        <button onclick="goToPage({{ current_page + 1 }})">Next <i class="fas fa-chevron-right"></i></button>
+                    {% endif %}
+                </div>
+                {% endif %}
+            </div>
+
+            <div class="no-results">
+                <i class="fas fa-search"></i>
+                <h3>No audit logs found</h3>
+                <p>
+                    No audit logs found matching your search criteria.
+                </p>
+                <div class="search-suggestions">
+                    <h4><i class="fas fa-lightbulb"></i> Search Tips</h4>
+                    <ul>
+                        <li>Try using partial matches (e.g., "user" instead of full username)</li>
+                        <li>Check for case sensitivity - try different variations</li>
+                        <li>Verify the date range includes your expected timeframe</li>
+                        <li>Try clearing some filters to broaden your search</li>
+                        <li>Ensure the tenant, event, or user ID exists in the system</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- JSON Modal -->
+    <div id="jsonModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="modalTitle"><i class="fas fa-code"></i> JSON Data</h2>
+                <span class="close" onclick="closeJsonModal()">&times;</span>
+            </div>
+            <div class="modal-body">
+                <div class="json-controls">
+                    <button class="copy-btn" onclick="copyJsonToClipboard()">
+                        <i class="fas fa-copy"></i> Copy JSON
+                    </button>
+                    <button class="json-btn" onclick="expandAllJson()">
+                        <i class="fas fa-expand-alt"></i> Expand All
+                    </button>
+                    <button class="json-btn" onclick="collapseAllJson()">
+                        <i class="fas fa-compress-alt"></i> Collapse All
+                    </button>
+                    <button class="json-btn" onclick="formatJson()">
+                        <i class="fas fa-magic"></i> Format
+                    </button>
+                </div>
+                <div id="jsonContent" class="json-tree"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentJsonData = '';
+        let searchTimeout;
+        // Global variable to store current API results for modal access
+        let currentApiResults = [];
+
+        function clearForm() {
+            document.getElementById('searchForm').reset();
+            // Trigger a search with empty params to clear results/reset to defaults without page reload
+            goToPage(1);
+            // Optionally clean URL
+            window.history.pushState({}, '', '/report');
+        }
+
+        function goToPage(page) {
+            // Updated to fetch data instead of redirecting
+            fetchResults(page);
+        }
+
+        // Intercept form submission
+        document.getElementById('searchForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            fetchResults(1);
+        });
+
+        function fetchResults(page) {
+            const form = document.getElementById('searchForm');
+            const formData = new FormData(form);
+            const params = new URLSearchParams(formData);
+            params.set('page', page);
+            
+            // Show loading
+            const loadingOverlay = document.getElementById('loadingOverlay');
+            if (loadingOverlay) loadingOverlay.classList.add('active');
+            
+            // Update URL without reload
+            window.history.pushState({}, '', '/report?' + params.toString());
+
+            fetch('/report/api/search?' + params.toString())
+                .then(response => {
+                    if (!response.ok) throw new Error('Network response was not ok');
+                    return response.json();
+                })
+                .then(data => {
+                    // Store results for modal access
+                    currentApiResults = data.results || [];
+                    
+                    updateResultsHeader(data);
+                    updateTable(data);
+                    updatePagination(data);
+                    
+                    // Toggle empty state/results
+                    const resultsContainer = document.getElementById('resultsContainer');
+                    const hasResults = data.total_count > 0;
+                    
+                    if (hasResults) {
+                        resultsContainer.classList.remove('empty');
+                    } else {
+                        resultsContainer.classList.add('empty');
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    // Could show an error message in the UI here
+                })
+                .finally(() => {
+                    if (loadingOverlay) loadingOverlay.classList.remove('active');
+                });
+        }
+
+        function updateResultsHeader(data) {
+            const container = document.getElementById('resultsCount');
+            if (data.total_count > 0) {
+                container.innerHTML = `<i class="fas fa-database"></i> Showing ${data.start_item}-${data.end_item} of ${data.total_count} results`;
+            } else {
+                container.innerHTML = `<i class="fas fa-info-circle"></i> No results found`;
+            }
+        }
+
+        function updateTable(data) {
+            const tbody = document.querySelector('#resultsTable tbody');
+            tbody.innerHTML = '';
+
+            if (!data.results || data.results.length === 0) return;
+
+            data.results.forEach((row, index) => {
+                const tr = document.createElement('tr');
+                
+                // Helper to generate the JSON cell content
+                const createJsonCell = (displayHtml, type) => {
+                    // displayHtml is already highlighted/escaped from server
+                    const content = displayHtml || '';
+                    const hasContent = content.length > 0;
+                    const isLong = content.length > 100;
+                    
+                    // We use the index to reference the raw data in currentApiResults
+                    let cellHtml = `
+                        <div class="json-preview" onclick="showAjaxJsonModal(${index}, '${type}')">
+                            ${content}
+                        </div>
+                    `;
+                    
+                    if (hasContent && isLong) {
+                        cellHtml += `
+                        <button class="see-more-btn" onclick="showAjaxJsonModal(${index}, '${type}')">
+                            <i class="fas fa-expand"></i> See More
+                        </button>`;
+                    }
+                    return cellHtml;
+                };
+
+                tr.innerHTML = `
+                    <td><strong>${row.id}</strong></td>
+                    <td>${row.created_at || ''}</td>
+                    <td>${row.tenant_id || ''}</td>
+                    <td>${row.event_name || ''}</td>
+                    <td>${row.user_id || ''}</td>
+                    <td>${createJsonCell(row.request_data, 'request')}</td>
+                    <td>${createJsonCell(row.response_data, 'response')}</td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        function updatePagination(data) {
+            const container = document.getElementById('paginationContainer');
+            if (data.total_pages <= 1) {
+                container.innerHTML = '';
+                return;
+            }
+
+            let html = `
+                <div class="pagination-info">
+                    <i class="fas fa-file-alt"></i> Page ${data.current_page} of ${data.total_pages}
+                </div>
+                <div class="pagination-controls">
+            `;
+
+            if (data.current_page > 1) {
+                html += `<button onclick="goToPage(${data.current_page - 1})"><i class="fas fa-chevron-left"></i> Previous</button>`;
+            }
+
+            // Simple logic for page numbers similar to Python one
+            const total = data.total_pages;
+            const current = data.current_page;
+            let range = [];
+            
+            if (total <= 5) {
+                for(let i=1; i<=total; i++) range.push(i);
+            } else {
+                if (current <= 3) {
+                    range = [1, 2, 3, 4, '...', total];
+                } else if (current >= total - 2) {
+                    range = [1, '...', total-3, total-2, total-1, total];
+                } else {
+                    range = [1, '...', current-1, current, current+1, '...', total];
+                }
+            }
+
+            range.forEach(p => {
+                if (p === current) {
+                    html += `<button class="active">${p}</button>`;
+                } else if (p === '...') {
+                    html += `<button disabled>...</button>`;
+                } else {
+                    html += `<button onclick="goToPage(${p})">${p}</button>`;
+                }
+            });
+
+            if (data.current_page < data.total_pages) {
+                html += `<button onclick="goToPage(${data.current_page + 1})">Next <i class="fas fa-chevron-right"></i></button>`;
+            }
+
+            html += `</div>`;
+            container.innerHTML = html;
+        }
+
+        // Add real-time search feedback
+        function addSearchFeedback() {
+            const searchInputs = document.querySelectorAll('input[type="text"], input[type="datetime-local"]');
+            searchInputs.forEach(input => {
+                input.addEventListener('input', function() {
+                    clearTimeout(searchTimeout);
+                    const searchIcon = this.parentElement.querySelector('i');
+                    if (searchIcon) {
+                        searchIcon.className = 'fas fa-spinner fa-spin';
+                    }
+                    
+                    searchTimeout = setTimeout(() => {
+                        if (searchIcon) {
+                            searchIcon.className = searchIcon.className.replace('fa-spinner fa-spin', 'fa-search');
+                        }
+                    }, 500);
+                });
+
+                input.addEventListener('focus', function() {
+                    this.parentElement.style.transform = 'scale(1.02)';
+                });
+
+                input.addEventListener('blur', function() {
+                    this.parentElement.style.transform = 'scale(1)';
+                });
+            });
+        }
+
+        // Add keyboard shortcuts
+        function addKeyboardShortcuts() {
+            document.addEventListener('keydown', function(event) {
+                // Ctrl/Cmd + K to focus search
+                if ((event.ctrlKey || event.metaKey) && event.key === 'k') {
+                    event.preventDefault();
+                    document.getElementById('search_text')?.focus();
+                }
+                
+                // Escape to clear form
+                if (event.key === 'Escape' && !event.target.matches('input, textarea')) {
+                    // Logic to clear
+                }
+            });
+        }
+
+        // Initialize enhancements
+        document.addEventListener('DOMContentLoaded', function() {
+            addSearchFeedback();
+            addKeyboardShortcuts();
+            
+            // Add smooth scroll behavior
+            document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+                anchor.addEventListener('click', function (e) {
+                    e.preventDefault();
+                    const target = document.querySelector(this.getAttribute('href'));
+                    if (target) {
+                        target.scrollIntoView({ behavior: 'smooth' });
+                    }
+                });
+            });
+        });
+
+        function unescapeHtml(text) {
+            const doc = new DOMParser().parseFromString(text, 'text/html');
+            return doc.documentElement.textContent;
+        }
+
+        // Function used by server-side rendered buttons
+        function showJsonModal(title, jsonData) {
+            const modal = document.getElementById('jsonModal');
+            const modalTitle = document.getElementById('modalTitle');
+            const jsonContent = document.getElementById('jsonContent');
+
+            modalTitle.innerHTML = '<i class="fas fa-code"></i> ' + title;
+            
+            // Unescape HTML entities in the JSON data before storing and parsing
+            const unescapedJsonData = unescapeHtml(jsonData);
+            currentJsonData = unescapedJsonData;
+
+            try {
+                const parsedData = JSON.parse(unescapedJsonData);
+                jsonContent.innerHTML = renderJsonTree(parsedData);
+            } catch (e) {
+                // If parsing fails, display the unescaped string as plain text
+                jsonContent.innerHTML = '<div class="json-string">' + escapeHtml(unescapedJsonData) + '</div>';
+            }
+
+            modal.style.display = 'block';
+            document.body.style.overflow = 'hidden';
+        }
+
+        // Function used by AJAX rendered buttons
+        function showAjaxJsonModal(index, type) {
+            const rowData = currentApiResults[index];
+            if (!rowData) return;
+
+            let title = type === 'request' ? 'Request Data' : 'Response Data';
+            // Use the raw data sent by API, not the HTML version
+            let rawData = type === 'request' ? rowData.raw_request_data : rowData.raw_response_data;
+            
+            // Re-use existing function logic
+            showJsonModal(title, rawData);
+        }
+
+        function closeJsonModal() {
+            const modal = document.getElementById('jsonModal');
+            modal.style.display = 'none';
+            document.body.style.overflow = 'auto';
+        }
+
+        function renderJsonTree(obj, level = 0, path = '') {
+            if (obj === null) {
+                return '<span class="json-line"><span class="json-null">null</span></span>';
+            }
+
+            if (typeof obj === 'string') {
+                return '<span class="json-line"><span class="json-string">"' + escapeHtml(obj) + '"</span></span>';
+            }
+
+            if (typeof obj === 'number') {
+                return '<span class="json-line"><span class="json-number">' + obj + '</span></span>';
+            }
+
+            if (typeof obj === 'boolean') {
+                return '<span class="json-line"><span class="json-boolean">' + obj + '</span></span>';
+            }
+
+            if (Array.isArray(obj)) {
+                if (obj.length === 0) {
+                    return '<span class="json-line"><span class="json-bracket">[]</span></span>';
+                }
+
+                const summary = obj.length + ' items';
+                let html = '<span class="json-line">';
+                html += '<span class="json-bracket">[</span>';
+                html += '<span class="json-toggle" onclick="toggleJsonNode(this)" data-summary="' + summary + '"></span>';
+                html += '<span class="json-summary">' + summary + '</span>';
+                html += '<div class="json-node">';
+                
+                obj.forEach((item, index) => {
+                    html += '<div class="json-line">';
+                    html += '<span style="color: #6e7781; margin-right: 8px;">' + index + ':</span>';
+                    html += renderJsonTree(item, level + 1, path + '[' + index + ']');
+                    if (index < obj.length - 1) {
+                        html += '<span class="json-comma">,</span>';
+                    }
+                    html += '</div>';
+                });
+                
+                html += '</div></span><span class="json-bracket">]</span>';
+                return html;
+            }
+
+            if (typeof obj === 'object') {
+                const keys = Object.keys(obj);
+                if (keys.length === 0) {
+                    return '<span class="json-line"><span class="json-bracket">{}</span></span>';
+                }
+
+                const summary = keys.length + ' properties';
+                let html = '<span class="json-line">';
+                html += '<span class="json-bracket">{</span>';
+                html += '<span class="json-toggle" onclick="toggleJsonNode(this)" data-summary="' + summary + '"></span>';
+                html += '<span class="json-summary">' + summary + '</span>';
+                html += '<div class="json-node">';
+                
+                keys.forEach((key, index) => {
+                    html += '<div class="json-line">';
+                    html += '<span class="json-key">"' + escapeHtml(key) + '"</span>';
+                    html += ': ';
+                    html += renderJsonTree(obj[key], level + 1, path + '.' + key);
+                    if (index < keys.length - 1) {
+                        html += '<span class="json-comma">,</span>';
+                    }
+                    html += '</div>';
+                });
+                
+                html += '</div></span><span class="json-bracket">}</span>';
+                return html;
+            }
+
+            return '<span class="json-line">' + escapeHtml(String(obj)) + '</span>';
+        }
+
+        function toggleJsonNode(element) {
+            const isCollapsed = element.classList.contains('collapsed');
+            element.classList.toggle('collapsed');
+            
+            // Find the correct node to toggle - it should be the next element after the toggle
+            let currentElement = element.nextElementSibling;
+            
+            // Skip over the summary element to get to the actual json-node
+            if (currentElement && currentElement.classList.contains('json-summary')) {
+                currentElement = currentElement.nextElementSibling;
+            }
+            
+            if (currentElement && currentElement.classList.contains('json-node')) {
+                currentElement.classList.toggle('json-collapsed');
+            }
+            
+            // Update summary visibility
+            const summary = element.nextElementSibling;
+            if (summary && summary.classList.contains('json-summary')) {
+                summary.style.display = isCollapsed ? 'none' : 'inline';
+            }
+        }
+
+        function expandAllJson() {
+            const toggles = document.querySelectorAll('.json-toggle.collapsed');
+            const nodes = document.querySelectorAll('.json-collapsed');
+            const summaries = document.querySelectorAll('.json-summary');
+            
+            toggles.forEach(toggle => toggle.classList.remove('collapsed'));
+            nodes.forEach(node => node.classList.remove('json-collapsed'));
+            summaries.forEach(summary => summary.style.display = 'inline');
+        }
+
+        function collapseAllJson() {
+            const toggles = document.querySelectorAll('.json-toggle:not(.collapsed)');
+            const nodes = document.querySelectorAll('.json-node:not(.json-collapsed)');
+            const summaries = document.querySelectorAll('.json-summary');
+            
+            toggles.forEach(toggle => toggle.classList.add('collapsed'));
+            nodes.forEach(node => node.classList.add('json-collapsed'));
+            summaries.forEach(summary => summary.style.display = 'inline');
+        }
+
+        function formatJson() {
+            const jsonContent = document.getElementById('jsonContent');
+            try {
+                const parsedData = JSON.parse(currentJsonData);
+                jsonContent.innerHTML = renderJsonTree(parsedData);
+            } catch (e) {
+                // If parsing fails, just re-render with current data
+                jsonContent.innerHTML = '<div class="json-string">' + escapeHtml(currentJsonData) + '</div>';
+            }
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        function copyJsonToClipboard() {
+            const copyBtn = document.querySelector('.copy-btn');
+
+            navigator.clipboard.writeText(currentJsonData).then(function() {
+                copyBtn.classList.add('copied');
+                copyBtn.innerHTML = '<i class="fas fa-check"></i> Copied!';
+
+                setTimeout(function() {
+                    copyBtn.classList.remove('copied');
+                    copyBtn.innerHTML = '<i class="fas fa-copy"></i> Copy JSON';
+                }, 2000);
+            }).catch(function(err) {
+                console.error('Failed to copy: ', err);
+                // Fallback for older browsers
+                const textArea = document.createElement('textarea');
+                textArea.value = currentJsonData;
+                document.body.appendChild(textArea);
+                textArea.select();
+                document.execCommand('copy');
+                document.body.removeChild(textArea);
+                
+                copyBtn.classList.add('copied');
+                copyBtn.innerHTML = '<i class="fas fa-check"></i> Copied!';
+                setTimeout(function() {
+                    copyBtn.classList.remove('copied');
+                    copyBtn.innerHTML = '<i class="fas fa-copy"></i> Copy JSON';
+                }, 2000);
+            });
+        }
+
+        window.onclick = function(event) {
+            const modal = document.getElementById('jsonModal');
+            if (event.target === modal) {
+                closeJsonModal();
+            }
+        }
+
+        document.addEventListener('keydown', function(event) {
+            if (event.key === 'Escape') {
+                closeJsonModal();
+            }
+        });
+    </script>
+</body>
+</html>
+"""
+
+def highlight_search_term(text, search_term):
+    """
+    Highlight the search term in the text.
+
+    Args:
+        text (str): The text to highlight.
+        search_term (str): The term to highlight.
+
+    Returns:
+        str: The text with the search term highlighted.
+    """
+    if not search_term:
+        return text
+    
+    # Escape HTML in the text first to prevent XSS
+    text_escaped = html.escape(str(text))
+    
+    # Escape regex special characters in search term
+    escaped_term = re.escape(search_term)
+    
+    # Highlight with case-insensitive matching
+    highlighted_text = re.sub(
+        f'({escaped_term})',
+        r'<span class="highlight">\1</span>',
+        text_escaped,
+        flags=re.IGNORECASE
+    )
+    return highlighted_text
+
+@REPORT.route("/")
+def index():
+    """Main report page with server-side rendering."""
+    try:
+        search_params = {
+            'tenant_id': request.args.get('tenant_id', '').strip(),
+            'event_name': request.args.get('event_name', '').strip(),
+            'user_id': request.args.get('user_id', '').strip(),
+            'date_from': request.args.get('date_from', '').strip(),
+            'date_to': request.args.get('date_to', '').strip(),
+            'search_text': request.args.get('search_text', '').strip(),
+            'per_page': int(request.args.get('per_page', 25)),
+            'page': int(request.args.get('page', 1))
+        }
+
+        if search_params['per_page'] not in [10, 25, 50, 100]:
+            search_params['per_page'] = 25
+
+        immudb_service = ImmudbService.get_instance()
+
+        if not immudb_service.enabled:
+            return render_template_string(
+                REPORT_TEMPLATE,
+                search_params=search_params,
+                error="ImmuDB is not enabled. Please check your configuration.",
+                total_count=0,
+                current_page=1,
+                total_pages=1,
+                page_range=[],
+                start_item=0,
+                end_item=0,
+                results=[]
+            )
+
+        # Simple query without LOWER() - we'll filter in Python
+        query = "SELECT id, tenant_id, event_name, user_id, request_data, response_data, created_at FROM audit_logs WHERE 1=1"
+        
+        # Add date filters only (these are exact matches)
+        if search_params['date_from']:
+            query += f" AND created_at >= '{search_params['date_from']}'"
+        
+        if search_params['date_to']:
+            query += f" AND created_at <= '{search_params['date_to']}'"
+
+        query += " ORDER BY created_at DESC"
+
+        try:
+            results = immudb_service.client.sqlQuery(query)
+            
+            # Filter results in Python for case-insensitive matching
+            filtered_results = []
+            for row in results:
+                match = True
+                
+                # Check tenant_id
+                if search_params['tenant_id']:
+                    if search_params['tenant_id'].lower() not in str(row[1]).lower():
+                        match = False
+                
+                # Check event_name
+                if match and search_params['event_name']:
+                    if search_params['event_name'].lower() not in str(row[2]).lower():
+                        match = False
+                
+                # Check user_id
+                if match and search_params['user_id']:
+                    if search_params['user_id'].lower() not in str(row[3]).lower():
+                        match = False
+                
+                # Check search_text in request_data and response_data
+                if match and search_params['search_text']:
+                    search_term = search_params['search_text'].lower()
+                    if not (search_term in str(row[4]).lower() or search_term in str(row[5]).lower()):
+                        match = False
+                
+                if match:
+                    filtered_results.append(row)
+            
+            results = filtered_results
+
+        except Exception as e:
+            return render_template_string(
+                REPORT_TEMPLATE,
+                search_params=search_params,
+                error=f"An error occurred: {str(e)}",
+                total_count=0,
+                current_page=1,
+                total_pages=1,
+                page_range=[],
+                start_item=0,
+                end_item=0,
+                results=[]
+            )
+
+        per_page = search_params['per_page']
+        current_page = search_params['page']
+        total_count = len(results)
+        total_pages = max(1, (total_count + per_page - 1) // per_page)
+
+        # Ensure current_page is within valid range
+        current_page = max(1, min(current_page, total_pages))
+
+        start_idx = (current_page - 1) * per_page
+        end_idx = start_idx + per_page
+        paginated_results = results[start_idx:end_idx]
+
+        formatted_results = []
+        for row in paginated_results:
+            row_list = list(row)
+            # Apply highlighting to request_data and response_data
+            if search_params.get('search_text'):
+                row_list[4] = highlight_search_term(row_list[4], search_params['search_text'])
+                row_list[5] = highlight_search_term(row_list[5], search_params['search_text'])
+            else:
+                # Escape HTML even when not highlighting
+                row_list[4] = html.escape(str(row_list[4]))
+                row_list[5] = html.escape(str(row_list[5]))
+            formatted_results.append(row_list)
+
+        start_item = start_idx + 1 if total_count > 0 else 0
+        end_item = min(start_idx + per_page, total_count)
+
+        # Calculate page range for pagination
+        page_range = []
+        max_visible = 5
+
+        if total_pages <= max_visible:
+            page_range = list(range(1, total_pages + 1))
+        else:
+            if current_page <= 3:
+                page_range = list(range(1, 5)) + ['...', total_pages]
+            elif current_page >= total_pages - 2:
+                page_range = [1, '...'] + list(range(total_pages - 3, total_pages + 1))
+            else:
+                page_range = [1, '...', current_page - 1, current_page, current_page + 1, '...', total_pages]
+
+        return render_template_string(
+            REPORT_TEMPLATE,
+            results=formatted_results,
+            total_count=total_count,
+            current_page=current_page,
+            total_pages=total_pages,
+            page_range=page_range,
+            start_item=start_item,
+            end_item=end_item,
+            search_params=search_params,
+            error=None
+        )
+
+    except Exception as e:
+        return render_template_string(
+            REPORT_TEMPLATE,
+            search_params={},
+            error=f"An error occurred: {str(e)}",
+            total_count=0,
+            current_page=1,
+            total_pages=1,
+            page_range=[],
+            start_item=0,
+            end_item=0,
+            results=[]
+        )
+
+@REPORT.route("/api/search")
+def api_search():
+    """API endpoint for AJAX search functionality."""
+    try:
+        search_params = {
+            'tenant_id': request.args.get('tenant_id', '').strip(),
+            'event_name': request.args.get('event_name', '').strip(),
+            'user_id': request.args.get('user_id', '').strip(),
+            'date_from': request.args.get('date_from', '').strip(),
+            'date_to': request.args.get('date_to', '').strip(),
+            'search_text': request.args.get('search_text', '').strip(),
+            'per_page': int(request.args.get('per_page', 25)),
+            'page': int(request.args.get('page', 1))
+        }
+
+        if search_params['per_page'] not in [10, 25, 50, 100]:
+            search_params['per_page'] = 25
+
+        immudb_service = ImmudbService.get_instance()
+
+        if not immudb_service.enabled:
+            return jsonify({'error': 'ImmuDB is not enabled'}), 500
+
+        # Simple query without LOWER() - we'll filter in Python
+        query = "SELECT id, tenant_id, event_name, user_id, request_data, response_data, created_at FROM audit_logs WHERE 1=1"
+        
+        # Add date filters only (these are exact matches)
+        if search_params['date_from']:
+            query += f" AND created_at >= '{search_params['date_from']}'"
+        
+        if search_params['date_to']:
+            query += f" AND created_at <= '{search_params['date_to']}'"
+
+        query += " ORDER BY created_at DESC"
+
+        try:
+            results = immudb_service.client.sqlQuery(query)
+            
+            # Filter results in Python for case-insensitive matching
+            filtered_results = []
+            for row in results:
+                match = True
+                
+                # Check tenant_id
+                if search_params['tenant_id']:
+                    if search_params['tenant_id'].lower() not in str(row[1]).lower():
+                        match = False
+                
+                # Check event_name
+                if match and search_params['event_name']:
+                    if search_params['event_name'].lower() not in str(row[2]).lower():
+                        match = False
+                
+                # Check user_id
+                if match and search_params['user_id']:
+                    if search_params['user_id'].lower() not in str(row[3]).lower():
+                        match = False
+                
+                # Check search_text in request_data and response_data
+                if match and search_params['search_text']:
+                    search_term = search_params['search_text'].lower()
+                    if not (search_term in str(row[4]).lower() or search_term in str(row[5]).lower()):
+                        match = False
+                
+                if match:
+                    filtered_results.append(row)
+            
+            results = filtered_results
+
+        except Exception as e:
+            return jsonify({'error': f"An error occurred: {str(e)}"}), 500
+
+        per_page = search_params['per_page']
+        current_page = search_params['page']
+        total_count = len(results)
+        total_pages = max(1, (total_count + per_page - 1) // per_page)
+
+        # Ensure current_page is within valid range
+        current_page = max(1, min(current_page, total_pages))
+
+        start_idx = (current_page - 1) * per_page
+        end_idx = start_idx + per_page
+        paginated_results = results[start_idx:end_idx]
+
+        start_item = start_idx + 1 if total_count > 0 else 0
+        end_item = min(start_idx + per_page, total_count)
+
+        formatted_results = []
+        for row in paginated_results:
+            row_list = list(row)
+            # Store raw data before any modification for the JSON modal usage
+            raw_request = str(row_list[4]) if row_list[4] else ""
+            raw_response = str(row_list[5]) if row_list[5] else ""
+
+            # Apply highlighting or escaping for the HTML table display
+            if search_params.get('search_text'):
+                display_request = highlight_search_term(row_list[4], search_params['search_text'])
+                display_response = highlight_search_term(row_list[5], search_params['search_text'])
+            else:
+                display_request = html.escape(str(row_list[4]))
+                display_response = html.escape(str(row_list[5]))
+            
+            formatted_results.append({
+                'id': row_list[0],
+                'tenant_id': row_list[1],
+                'event_name': row_list[2],
+                'user_id': row_list[3],
+                'request_data': display_request,
+                'response_data': display_response,
+                'raw_request_data': raw_request, # Send raw data for JS modal access
+                'raw_response_data': raw_response,
+                'created_at': row_list[6]
+            })
+
+        return jsonify({
+            'results': formatted_results,
+            'total_count': total_count,
+            'current_page': current_page,
+            'total_pages': total_pages,
+            'per_page': per_page,
+            'start_item': start_item,
+            'end_item': end_item
+        })
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
