@@ -30,7 +30,6 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 from formsflow_api import config, models
 from formsflow_api.models import db, ma
 from formsflow_api.resources import API
-from formsflow_api.resources.report import REPORT
 
 
 def create_app(
@@ -69,7 +68,6 @@ def create_app(
     db.init_app(app)
     ma.init_app(app)
     API.init_app(app)
-    app.register_blueprint(REPORT)
     
     # Add custom template filters
     @app.template_filter('truncate')

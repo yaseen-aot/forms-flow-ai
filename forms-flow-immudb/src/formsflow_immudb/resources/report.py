@@ -3,10 +3,10 @@
 import json
 import re
 from flask import Blueprint, render_template_string, request, jsonify
-from formsflow_api.services.ehr.immudb_service import ImmudbService
+from ..services.immudb_service import ImmudbService
 import html
 
-REPORT = Blueprint("report", __name__, url_prefix="/report")
+REPORT = Blueprint("report", __name__)
 
 # HTML template for server-side rendered report page
 REPORT_TEMPLATE = """
