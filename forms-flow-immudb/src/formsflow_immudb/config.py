@@ -29,6 +29,7 @@ class Config:
     IMMUDB_HOST = os.getenv("IMMUDB_HOST", "localhost:3322")
     IMMUDB_USER = os.getenv("IMMUDB_USER", "immudb")
     IMMUDB_PASS = os.getenv("IMMUDB_PASS", "immudb")
+    IMMUDB_SECRET_KEY = os.getenv("IMMUDB_SECRET_KEY")
     
     # API Configuration
     API_PREFIX = os.getenv("API_PREFIX", "/api/v1")

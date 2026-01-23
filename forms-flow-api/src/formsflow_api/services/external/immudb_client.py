@@ -12,6 +12,7 @@ import json
 import logging
 import requests
 from typing import Callable, Iterable
+from cryptography.fernet import Fernet
 from flask import Blueprint, current_app, redirect, request
 
 # Initialize Logger
@@ -32,6 +33,18 @@ class ImmudbService:
         if cls._instance is None:
             cls._instance = cls()
         return cls._instance
+
+    def _get_auth_header(self):
+        """Generate the encrypted authentication header."""
+        secret_key = current_app.config.get("IMMUDB_SECRET_KEY")
+        if not secret_key:
+            logger.warning("IMMUDB_SECRET_KEY not configured. Request may fail.")
+            return {}
+        
+        fernet = Fernet(secret_key)
+        # Fernet tokens include a timestamp by default
+        token = fernet.encrypt(b"immudb-worker-auth")
+        return {"X-Auth-Token": token.decode()}
 
     def log_event(self, tenant_id, event_name, user_id, request_data, response_data, index_keys=None):
         """Log an event by calling the worker's REST API.
@@ -61,7 +74,12 @@ class ImmudbService:
             }
             
             # Fire and forget / best effort with short timeout
-            response = requests.post(f"{worker_url}/audit/log", json=payload, timeout=2)
+            response = requests.post(
+                f"{worker_url}/audit/log", 
+                json=payload, 
+                headers=self._get_auth_header(),
+                timeout=2
+            )
             return response.status_code in (200, 201)
             
         except Exception as e:
@@ -72,7 +90,12 @@ class ImmudbService:
         """Query logs from the worker's REST API."""
         try:
             worker_url = current_app.config.get("IMMUDB_WORKER_URL", "http://localhost:5001/api/v1")
-            response = requests.get(f"{worker_url}/audit/query", params=kwargs, timeout=5)
+            response = requests.get(
+                f"{worker_url}/audit/query", 
+                params=kwargs, 
+                headers=self._get_auth_header(),
+                timeout=5
+            )
             if response.status_code == 200:
                 return response.json().get("results", [])
             return []
@@ -80,30 +103,8 @@ class ImmudbService:
             logger.warning(f"Failed to query worker: {e}")
             return []
 
-
 # ---------------------------------------------------------------------------
-# 2. Report Blueprint
-# ---------------------------------------------------------------------------
-
-report_blueprint = Blueprint("report", __name__, url_prefix="/report")
-
-@report_blueprint.route("/")
-@report_blueprint.route("/<path:path>")
-def redirect_to_worker(path=""):
-    """Redirect requests to the worker service report page."""
-    worker_url = current_app.config.get("IMMUDB_WORKER_URL", "http://localhost:5001/api/v1")
-    # Strip the /api/v1 to get the base worker URL for HTML reports
-    worker_base = worker_url.replace("/api/v1", "")
-    
-    target_url = f"{worker_base}/report/{path}"
-    if request.query_string:
-        target_url += f"?{request.query_string.decode('utf-8')}"
-        
-    return redirect(target_url)
-
-
-# ---------------------------------------------------------------------------
-# 3. immudb_audit Decorator
+# 2. immudb_audit Decorator
 # ---------------------------------------------------------------------------
 
 def _extract_request_from_args_kwargs(args, kwargs):

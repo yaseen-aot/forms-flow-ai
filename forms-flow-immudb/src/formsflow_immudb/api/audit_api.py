@@ -3,6 +3,7 @@
 import logging
 from flask import Blueprint, request, jsonify, current_app
 from ..services.immudb_service import ImmudbService
+from ..utils.auth import require_auth
 
 logger = logging.getLogger(__name__)
 
@@ -10,6 +11,7 @@ audit_bp = Blueprint('audit', __name__)
 
 
 @audit_bp.route('/audit/log', methods=['POST'])
+@require_auth
 def log_audit_event():
     """Log a single audit event.
     
@@ -72,6 +74,7 @@ def log_audit_event():
 
 
 @audit_bp.route('/audit/log/batch', methods=['POST'])
+@require_auth
 def log_batch_events():
     """Log multiple audit events in a single request.
     
@@ -161,6 +164,7 @@ def log_batch_events():
 
 
 @audit_bp.route('/audit/query', methods=['GET'])
+@require_auth
 def query_audit_logs():
     """Query audit logs with filters.
     
