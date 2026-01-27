@@ -4,7 +4,39 @@
  * Based on the Foundry project implementation
  */
 
-import { debugLog, debugError, debugWarn } from './config';
+import { debugError, debugWarn } from './config';
+
+/**
+ * Wraps a promise to catch JSON parse errors and provide better error messages
+ * @param {Promise} promise - The promise to wrap
+ * @param {string} context - Context description for error messages
+ * @returns {Promise} Wrapped promise with error handling
+ */
+async function wrapFhirRequest(promise, context) {
+  try {
+    return await promise;
+  } catch (error) {
+    const errorMessage = error?.message || String(error);
+    
+    // Check if this is a JSON parse error (HTML response instead of JSON)
+    if (errorMessage.includes('JSON') || 
+        errorMessage.includes('<!doctype') || 
+        errorMessage.includes('Unexpected token') ||
+        errorMessage.includes('Unexpected token <')) {
+      // Provide a more helpful error message
+      const friendlyError = new Error(
+        `FHIR server returned an HTML response instead of JSON during ${context}. ` +
+        `This usually means the server endpoint is incorrect, the server is down, ` +
+        `or there's a network issue. Original error: ${errorMessage.substring(0, 100)}`
+      );
+      friendlyError.originalError = error;
+      throw friendlyError;
+    }
+    
+    // Re-throw other errors as-is
+    throw error;
+  }
+}
 
 /**
  * Initialize and launch SMART on FHIR client
@@ -54,11 +86,8 @@ export async function launchSMART(clientId, redirectUri, scope) {
     const iss = urlParams.get('iss') || sessionStorage.getItem('epic_iss'); // Issuer from URL or sessionStorage
     const launch = urlParams.get('launch') || sessionStorage.getItem('epic_launch'); // Launch parameter from URL or sessionStorage
     
-    debugLog("launchSMART OAuth state:", { codeFromUrl, codeFromStorage, code, state, iss, launch, redirectUri });
-    
     // If we have OAuth code/state, proceed with authentication (OAuth flow completed)
     if (code || state) {
-      debugLog("OAuth code/state found, proceeding with ready()");
       // OAuth redirect completed - proceed with authentication
       // Get iss/launch from sessionStorage if not in URL
       const storedIss = iss || sessionStorage.getItem('epic_iss');
@@ -75,11 +104,12 @@ export async function launchSMART(clientId, redirectUri, scope) {
       if (storedIss && storedLaunch) {
         readyOptions.iss = storedIss;
         readyOptions.launch = storedLaunch;
-        debugLog("Including iss and launch in readyOptions:", { iss: storedIss, launch: storedLaunch });
       }
       
-      const fhirClient = await ready(adapter, readyOptions);
-      debugLog("ready() returned FHIR client with patient context:", !!fhirClient?.patient);
+      const fhirClient = await wrapFhirRequest(
+        ready(adapter, readyOptions),
+        'SMART OAuth token exchange'
+      );
       return fhirClient;
     }
     
@@ -138,7 +168,10 @@ export async function launchSMART(clientId, redirectUri, scope) {
             iss: storedIss,
             launch: storedLaunch
           };
-          const fhirClient = await ready(adapter, readyOptions);
+          const fhirClient = await wrapFhirRequest(
+            ready(adapter, readyOptions),
+            'SMART OAuth token exchange (stored params)'
+          );
           return fhirClient;
         }
       }
@@ -176,8 +209,10 @@ export async function getPatient(client) {
       throw new Error('No patient context available');
     }
     
-    const patient = await client.patient.read();
-    debugLog('Patient read successfully:', patient);
+    const patient = await wrapFhirRequest(
+      client.patient.read(),
+      'patient.read()'
+    );
     return patient;
   } catch (error) {
     debugError('Error fetching patient:', error);
@@ -203,10 +238,12 @@ export async function fetchPatientData(client, patientId = null) {
     
     // If a specific patient ID is provided (for development/testing)
     if (patientId) {
-      debugLog('Fetching patient with ID:', patientId);
       try {
         // Fetch patient by ID directly
-        patient = await client.request(`Patient/${patientId}`);
+        patient = await wrapFhirRequest(
+          client.request(`Patient/${patientId}`),
+          `Patient/${patientId} request`
+        );
       } catch (error) {
         const errorMessage = parseFhirError(error);
         if (errorMessage.includes('deleted')) {
@@ -218,20 +255,16 @@ export async function fetchPatientData(client, patientId = null) {
       }
     } else {
       // Use the patient from launch context
-      debugLog('Fetching patient from launch context');
-      
       // Try to get patient ID from multiple sources
       let extractedPatientId = null;
       
       // 1. Try client.patient.id
       if (client.patient && client.patient.id) {
         extractedPatientId = client.patient.id;
-        debugLog('Patient ID from client.patient.id:', extractedPatientId);
       }
       // 2. Try tokenResponse.patient
       else if (client.state?.tokenResponse?.patient) {
         extractedPatientId = client.state.tokenResponse.patient;
-        debugLog('Patient ID from tokenResponse:', extractedPatientId);
       }
       // 3. Try extracting from JWT token in session storage
       else {
@@ -247,7 +280,6 @@ export async function fetchPatientData(client, patientId = null) {
               // Extract patient ID from context.patient
               if (payload.context && payload.context.patient) {
                 extractedPatientId = payload.context.patient;
-                debugLog('Patient ID extracted from JWT token:', extractedPatientId);
               }
             }
           } catch (jwtError) {
@@ -258,16 +290,17 @@ export async function fetchPatientData(client, patientId = null) {
       
       // If we have a patient ID, fetch directly
       if (extractedPatientId) {
-        debugLog('Fetching patient by ID:', extractedPatientId);
         try {
-          patient = await client.request(`Patient/${extractedPatientId}`);
+          patient = await wrapFhirRequest(
+            client.request(`Patient/${extractedPatientId}`),
+            `Patient/${extractedPatientId} request (extracted)`
+          );
         } catch (directError) {
           const errorMessage = parseFhirError(directError);
           throw new Error(errorMessage);
         }
       } else {
         // No patient ID available, try getPatient() which might work if context is set
-        debugLog('No patient ID found, trying getPatient()');
         try {
           patient = await getPatient(client);
         } catch (error) {
@@ -283,7 +316,6 @@ export async function fetchPatientData(client, patientId = null) {
       throw new Error('Patient not found or invalid patient context');
     }
 
-    debugLog('Patient data fetched successfully');
     return {
       patient
     };

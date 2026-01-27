@@ -4,7 +4,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
-import { isEhrEnabled, getSMARTConfig, debugLog, debugError, debugWarn } from './config';
+import { isEhrEnabled, getSMARTConfig, debugError, debugWarn } from './config';
 import { launchSMART, fetchPatientData } from './service';
 import { mapPatientToFormio } from './mapper';
 
@@ -26,7 +26,6 @@ export function useEhrPatientData({ form = null, autoFetch = true } = {}) {
   const fetchData = useCallback(async () => {
     // Check if EHR is enabled
     if (!isEhrEnabled()) {
-      debugLog('EHR integration is disabled');
       return;
     }
 
@@ -38,14 +37,12 @@ export function useEhrPatientData({ form = null, autoFetch = true } = {}) {
       const smartConfig = getSMARTConfig();
       
       if (!smartConfig.clientId) {
-        debugWarn('EHR Integration: SMART client ID not configured');
+        debugWarn('EHR Integration: SMART client ID not configured and could not be extracted from token');
         setError('EHR integration is not properly configured');
         setLoading(false);
         return;
       }
 
-      debugLog('EHR context detected - fetching patient data');
-      
       // Launch SMART client
       const smartClientPromise = launchSMART(
         smartConfig.clientId,
@@ -53,24 +50,14 @@ export function useEhrPatientData({ form = null, autoFetch = true } = {}) {
         smartConfig.scope
       );
       
-      // If launchSMART returns null, it means no EHR launch context
-      if (!smartClientPromise) {
-        debugLog('No EHR launch context available, form will load without patient data');
-        setLoading(false);
-        return;
-      }
-      
-      // Handle the promise
+      // Handle the promise - launchSMART may return null if no EHR context
       const fhirClient = await Promise.resolve(smartClientPromise);
       
       if (!fhirClient) {
-        debugLog('SMART client not available, form will load without patient data');
         setLoading(false);
         return;
       }
 
-      debugLog('SMART client initialized');
-      
       // Fetch patient data
       const data = await fetchPatientData(fhirClient);
       
@@ -78,8 +65,6 @@ export function useEhrPatientData({ form = null, autoFetch = true } = {}) {
         throw new Error('No patient data received from EHR');
       }
 
-      debugLog('Patient data fetched:', data.patient);
-      
       // Store raw patient data
       setPatientData(data.patient);
       setError(null);
@@ -101,7 +86,6 @@ export function useEhrPatientData({ form = null, autoFetch = true } = {}) {
   // Map patient data to form fields whenever patient data or form changes
   useEffect(() => {
     if (patientData) {
-      debugLog('Mapping patient data to form fields, form available:', !!form);
       const mapped = mapPatientToFormio(patientData, form);
       
       // Filter out non-primitive values
@@ -113,7 +97,6 @@ export function useEhrPatientData({ form = null, autoFetch = true } = {}) {
         }
       });
       
-      debugLog('Mapped data:', filteredMapped);
       setMappedData(filteredMapped);
     }
   }, [patientData, form]);
@@ -145,32 +128,9 @@ export function useEhrPatientData({ form = null, autoFetch = true } = {}) {
         sessionStorage.setItem('epic_launch', urlLaunch);
       }
       
-      // Check session storage for EHR launch parameters (now includes URL params)
-      const storedIss = sessionStorage.getItem('epic_iss');
-      const storedCode = sessionStorage.getItem('epic_code');
-      const storedLaunch = sessionStorage.getItem('epic_launch');
-      const storedIsEHR = sessionStorage.getItem('epic_isEHR');
-      
-      // Has EHR context if we have iss and (code OR launch) in session storage, OR isEHR flag
-      // OR if URL has isEHR=true with code/state parameters
-      const hasEhrContext = storedIsEHR === 'true' || 
-                           (storedIss && (storedCode || storedLaunch)) ||
-                           (urlIsEHR === 'true' && (urlCode || urlState));
-      
-      if (hasEhrContext) {
-        debugLog('EHR context detected, fetching patient data', {
-          storedIsEHR,
-          storedIss: !!storedIss,
-          storedCode: !!storedCode,
-          storedLaunch: !!storedLaunch,
-          urlIsEHR,
-          urlCode: !!urlCode,
-          urlState: !!urlState
-        });
-        fetchData();
-      } else {
-        debugLog('No EHR context detected - skipping patient data fetch');
-      }
+      // Always attempt to fetch - let the service layer determine if EHR context exists
+      // The service will return null gracefully if there's no EHR launch context
+      fetchData();
     }
   }, [autoFetch, fetchData]);
 

@@ -6,6 +6,33 @@
   <meta http-equiv="X-UA-Compatible" content="ie=edge">
   <title>formsflow.ai</title>
   <script src="/config/config.js"></script>
+  <!-- 
+    Workaround for i18next in forms-flow-service trying to load translations from 
+    paths that return HTML (SPA fallback). This interceptor returns {} for any 
+    response.json() call that fails with status 200, preventing the app from crashing.
+    Can be removed once forms-flow-service is updated with proper i18next config.
+  -->
+  <script>
+    (function() {
+      'use strict';
+      if (typeof Response !== 'undefined' && Response.prototype && Response.prototype.json && !Response.prototype.json._patched) {
+        var originalJson = Response.prototype.json;
+        Response.prototype.json = function() {
+          var response = this;
+          return originalJson.call(response).catch(function(error) {
+            // If JSON parsing fails with status 200, it's likely HTML from SPA routing
+            // Return empty object to prevent breaking the app (common with i18next misconfiguration)
+            if (response.status === 200) {
+              console.warn('[i18next workaround] JSON parse failed for status 200 response, returning {}. URL:', response.url);
+              return {};
+            }
+            throw error;
+          });
+        };
+        Response.prototype.json._patched = true;
+      }
+    })();
+  </script>
   <!-- Capture EHR launch parameters (iss, code) from URL and store in sessionStorage -->
   <!-- Also redirect to launch.html if iss and launch are present (but no code) -->
   <script>
@@ -106,7 +133,7 @@
   <link rel="stylesheet" href="https://unpkg.com/dmn-js@16.8.0/dist/assets/dmn-js-decision-table-controls.css">
   <link rel="stylesheet" href="https://unpkg.com/dmn-js@16.8.0/dist/assets/dmn-js-literal-expression.css">
   <link rel="stylesheet" href="https://unpkg.com/dmn-js@16.8.0/dist/assets/dmn-font/css/dmn.css">
-  <link rel="stylesheet" href="http://localhost:3008/forms-flow-theme.css">
+  <link rel="stylesheet" href="https://forms-flow-microfrontends.aot-technologies.com/forms-flow-theme@v8.0.0-alpha/forms-flow-theme.min.css">
 
   <!-- required styles from cdn -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -214,6 +241,8 @@
   -->
   <!-- <script src="https://cdn.jsdelivr.net/npm/zone.js@0.11.3/dist/zone.min.js"></script> -->
 
+  <!-- Import Map Overrides - can override URLs from localStorage -->
+  <!-- To clear overrides: localStorage.removeItem('import-map-overrides') -->
   <script src="https://cdn.jsdelivr.net/npm/import-map-overrides@2.2.0/dist/import-map-overrides.js"></script>
   <% if (isLocal) { %>
   <script src="https://cdn.jsdelivr.net/npm/systemjs@6.8.3/dist/system.js"></script>

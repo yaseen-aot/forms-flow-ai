@@ -16,6 +16,7 @@ export function isEhrEnabled() {
 /**
  * Get SMART on FHIR configuration
  * Reads from environment variables or provides defaults
+ * Falls back to extracting client_id from JWT token if not configured
  * 
  * @param {string} formId - Optional form ID for constructing redirect URI
  * @returns {Object} SMART configuration object
@@ -33,10 +34,34 @@ export function getSMARTConfig(formId = null) {
     redirectUri = window.location.origin + window.location.pathname;
   }
   
+  // Try to get client ID from environment, fall back to JWT token
+  let clientId = (window._env_ && window._env_.REACT_APP_SMART_CLIENT_ID) ||
+                 process.env.REACT_APP_SMART_CLIENT_ID;
+  
+  if (!clientId) {
+    // Try to extract from JWT token in sessionStorage
+    try {
+      const code = sessionStorage.getItem('epic_code');
+      if (code) {
+        // JWT tokens have 3 parts separated by dots
+        const parts = code.split('.');
+        if (parts.length === 3) {
+          // Decode the payload (second part)
+          // Replace URL-safe base64 characters
+          const payload = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+          // Add padding if needed
+          const padded = payload + '='.repeat(((4 - (payload.length % 4)) % 4));
+          const decoded = JSON.parse(atob(padded));
+          clientId = decoded.client_id || null;
+        }
+      }
+    } catch (error) {
+      // Silently fail - extraction failed
+    }
+  }
+  
   return {
-    clientId: (window._env_ && window._env_.REACT_APP_SMART_CLIENT_ID) ||
-              process.env.REACT_APP_SMART_CLIENT_ID ||
-              '',
+    clientId: clientId || '',
     redirectUri: redirectUri,
     scope: (window._env_ && window._env_.REACT_APP_SMART_SCOPE) ||
            process.env.REACT_APP_SMART_SCOPE ||

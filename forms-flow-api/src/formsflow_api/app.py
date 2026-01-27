@@ -90,7 +90,18 @@ def create_app(
 
     @app.after_request
     def add_additional_headers(response):  # pylint: disable=unused-variable
-        response.headers["X-Frame-Options"] = "DENY"
+        # Allow iframe embedding for SMART on FHIR integration
+        # Use CSP frame-ancestors instead of X-Frame-Options for better control
+        # Set to ALLOWALL for SMART on FHIR, or use specific domains
+        frame_options = os.getenv("FORMSFLOW_API_FRAME_OPTIONS", "ALLOWALL")
+        if frame_options == "ALLOWALL":
+            # Don't set X-Frame-Options, use CSP frame-ancestors instead
+            response.headers["Content-Security-Policy"] = (
+                response.headers.get("Content-Security-Policy", "") + 
+                " frame-ancestors *;"
+            ).strip()
+        else:
+            response.headers["X-Frame-Options"] = frame_options
         return response
 
     register_shellcontext(app)

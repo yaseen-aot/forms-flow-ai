@@ -5,9 +5,9 @@ import { useSelector } from "react-redux";
 import { RESOURCE_BUNDLES_DATA } from "../../../resourceBundles/i18n.js";
 import { fetchFormById } from "../../../apiManager/services/bpmFormServices.js";
 import Loading from "../../../containers/Loading.js";
-import { launchSMART, fetchPatientData } from "../../../services/ehrService.js";
-import { mapPatientToFormio } from "../../../services/ehrMapper.js";
-import { getSMARTConfig, debugLog, debugError } from "../../../services/ehrConfig.js";
+import { launchSMART, fetchPatientData } from "../../../integrations/ehr/service.js";
+import { mapPatientToFormio } from "../../../integrations/ehr/mapper.js";
+import { getSMARTConfig, debugError } from "../../../integrations/ehr/config.js";
 
 const FormPreview = () => {
   const lang = useSelector((state) => state.user.lang);
@@ -21,7 +21,6 @@ const FormPreview = () => {
   // Update form submission when it changes after form is ready
   useEffect(() => {
     if (submission && formRef.current) {
-      debugLog("Submission updated, applying to form:", submission);
       formRef.current.submission = submission;
       // Try to set values directly on components
       if (formRef.current.setValue && submission.data) {
@@ -64,9 +63,6 @@ const FormPreview = () => {
             // If we have EHR context (from query param or session storage), launch SMART and fetch patient data
             const smartConfig = getSMARTConfig(formId);
             if (hasEhrContext && smartConfig.clientId) {
-              debugLog("EHR context detected - fetching patient data");
-              debugLog("Session storage - iss:", storedIss, "code:", storedCode);
-              
               launchSMART(
                 smartConfig.clientId,
                 smartConfig.redirectUri,
@@ -74,7 +70,6 @@ const FormPreview = () => {
               )
                 .then((fhirClient) => {
                   if (!fhirClient) {
-                    debugLog("No FHIR client available, form will load without patient data");
                     return null;
                   }
                   return fetchPatientData(fhirClient);
@@ -87,24 +82,15 @@ const FormPreview = () => {
                   // Map patient demographics to form fields
                   const mappedData = mapPatientToFormio(patientData.patient, data);
                   
-                  debugLog("=== EHR Mapping Debug ===");
-                  debugLog("Patient data from EHR:", patientData.patient);
-                  debugLog("Form schema:", data);
-                  debugLog("Mapped form data:", mappedData);
-                  debugLog("Form field keys:", data.components?.map(c => c.key).filter(Boolean));
-                  debugLog("Number of mapped fields:", Object.keys(mappedData).length);
-                  
                   // Create submission object for Form.io
                   const submissionData = {
                     data: mappedData
                   };
                   
-                  debugLog("Submission object:", submissionData);
                   setSubmission(submissionData);
                   
                   // If form is already rendered, update it directly
                   if (formRef.current) {
-                    debugLog("Form already rendered, updating submission directly");
                     formRef.current.submission = submissionData;
                   }
                 })
@@ -178,13 +164,9 @@ const FormPreview = () => {
           submission={submission}
           formReady={(formInstance) => {
             formRef.current = formInstance;
-            debugLog("Form ready callback triggered");
-            debugLog("Current submission prop:", submission);
-            debugLog("Form instance submission:", formInstance.submission);
             
             // If we have submission data, set it on the form instance
             if (submission) {
-              debugLog("Setting submission on form instance:", submission);
               formInstance.submission = submission;
               // Trigger form update
               if (formInstance.setValue) {

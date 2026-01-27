@@ -67,8 +67,7 @@ import { useParams } from "react-router-dom";
 // EHR Integration - conditionally imported based on feature flag
 import { 
   isEhrEnabled, 
-  useEhrPatientData,
-  debugLog
+  useEhrPatientData
 } from "../../../integrations/ehr";
 
 const View = React.memo((props) => {
@@ -316,7 +315,6 @@ const View = React.memo((props) => {
   // Sync EHR data to submission state
   useEffect(() => {
     if (ehrData) {
-      debugLog("Setting EHR submission from hook data:", ehrData);
       setEhrSubmission({ data: ehrData });
     }
   }, [ehrData]);
@@ -325,7 +323,6 @@ const View = React.memo((props) => {
   // Note: formRef.current is also checked in formReady callback
   useEffect(() => {
     if (ehrSubmission && ehrSubmission.data && formRef.current) {
-      debugLog("Applying EHR data to form (formRef available)");
       applyEhrDataToForm(formRef.current, ehrSubmission);
     }
   }, [ehrSubmission]);
@@ -388,7 +385,7 @@ const View = React.memo((props) => {
                   underline 
                   onBreadcrumbClick={handleBreadcrumbClick}
                 /> 
-                <h4>{draftSubmission?.isDraft ? draftId : t("New Submission2")}</h4>
+                <h4>{draftSubmission?.isDraft ? draftId : t("New Submission")}</h4>
             </div>
 
         </div>
@@ -443,16 +440,10 @@ const View = React.memo((props) => {
               }}
               formReady={(formInstance) => {
                 formRef.current = formInstance;
-                debugLog("Form ready callback triggered");
-                debugLog("EHR submission available:", !!ehrSubmission);
                 
                 // Apply EHR submission if available (immediate)
                 if (ehrSubmission && ehrSubmission.data) {
-                  debugLog("Applying EHR data in formReady callback");
                   applyEhrDataToForm(formInstance, ehrSubmission);
-                } else {
-                  // If EHR data arrives later, it will be applied via the useEffect
-                  debugLog("EHR data not yet available, will apply when it arrives");
                 }
               }}
               onSubmit={(data) => {
@@ -608,19 +599,16 @@ const mapDispatchToProps = (dispatch, ownProps) => {
  * @param {Object} submissionData - The submission data containing EHR patient data
  */
 const applyEhrDataToForm = (formInstance, submissionData) => {
-  if (!formInstance || !submissionData || !submissionData.data) return;
+  if (!formInstance || !submissionData || !submissionData.data) {
+    return;
+  }
 
-  debugLog("EHR submission updated, applying to form:", submissionData);
   formInstance.submission = submissionData;
   
   // CRITICAL: Set values directly on components to update UI
   // This is necessary because setting submission directly doesn't always update 
   // the visual state of all components in some Form.io versions/configurations
   if (typeof formInstance.getComponent === 'function') {
-    let componentsSet = 0;
-    let componentsNotFound = 0;
-    const notFoundKeys = [];
-    
     Object.keys(submissionData.data).forEach(key => {
       const value = submissionData.data[key];
       // Only set primitive values (string, number, boolean)
@@ -628,21 +616,9 @@ const applyEhrDataToForm = (formInstance, submissionData) => {
         const component = formInstance.getComponent(key);
         if (component) {
           component.setValue(value, { modified: false });
-          debugLog(`  ✓ Set value for "${key}": ${value}`);
-          componentsSet++;
-        } else {
-          componentsNotFound++;
-          notFoundKeys.push(key);
-          debugLog(`  ✗ Component not found for key "${key}"`);
         }
       }
     });
-    
-    debugLog(`EHR submission update: ${componentsSet} components set, ` +
-      `${componentsNotFound} not found`);
-    if (notFoundKeys.length > 0) {
-      debugLog(`Components not found: ${notFoundKeys.join(', ')}`);
-    }
     
     // Trigger form redraw/update if available to ensure UI reflects changes
     if (typeof formInstance.redraw === 'function') {
