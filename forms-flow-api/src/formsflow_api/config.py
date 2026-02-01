@@ -153,6 +153,7 @@ class _Config:  # pylint: disable=too-few-public-methods
     CSS_API_LOGIN_URL = os.getenv("CSS_API_LOGIN_URL")
     CSS_IDP_LIST = os.getenv("CSS_IDP_LIST")
     USER_NAME_DISPLAY_CLAIM = os.getenv("USER_NAME_DISPLAY_CLAIM")
+    IMMUDB_SECRET_KEY = os.getenv("IMMUDB_SECRET_KEY")
 
 
 class DevConfig(_Config):  # pylint: disable=too-few-public-methods

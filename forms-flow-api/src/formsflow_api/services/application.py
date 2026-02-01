@@ -16,7 +16,7 @@ from formsflow_api_utils.utils import (
     NEW_APPLICATION_STATUS,
 )
 from formsflow_api_utils.utils.user_context import UserContext, user_context
-
+from formsflow_api.services.external.immudb_client import immudb_audit
 from formsflow_api.constants import BusinessErrorCode
 from formsflow_api.models import (
     Application,
@@ -35,7 +35,6 @@ from formsflow_api.schemas import (
 from formsflow_api.services.external import BPMService
 
 from .form_process_mapper import FormProcessMapperService
-
 application_schema = ApplicationSchema()
 
 
@@ -101,6 +100,7 @@ class ApplicationService:  # pylint: disable=too-many-public-methods
 
     @staticmethod
     @user_context
+    @immudb_audit(event_name="create_application", index_keys=["application_id"])
     def create_application(data, token, **kwargs):
         """Create new application."""
         user: UserContext = kwargs["user"]
@@ -155,7 +155,12 @@ class ApplicationService:  # pylint: disable=too-many-public-methods
             ):  # If application instance is created, rollback the transaction.
                 application.rollback()
             raise BusinessException(BusinessErrorCode.APPLICATION_CREATE_ERROR) from e
-
+         # Get the dumped response
+        response_data = application_schema.dump(application)
+        
+        # Ensure tenant is in the response for ImmuDB logging
+        if tenant_key:
+            response_data["tenant"] = tenant_key
         return application, HTTPStatus.CREATED
 
     @staticmethod
@@ -363,6 +368,8 @@ class ApplicationService:  # pylint: disable=too-many-public-methods
         return ApplicationSchema().dump([]), HTTPStatus.FORBIDDEN
 
     @classmethod
+    @user_context
+    @immudb_audit(event_name="update_draft", index_keys=["application_id"])
     def update_draft(cls, application_id: int, data: Dict):
         """Update draft by application id."""
         draft = Draft.get_draft_by_application_id(application_id)
@@ -373,6 +380,7 @@ class ApplicationService:  # pylint: disable=too-many-public-methods
 
     @staticmethod
     @user_context
+    @immudb_audit(event_name="update_application", index_keys=["application_id"])
     def update_application(application_id: int, data: Dict, **kwargs):
         """Update application."""
         user: UserContext = kwargs["user"]

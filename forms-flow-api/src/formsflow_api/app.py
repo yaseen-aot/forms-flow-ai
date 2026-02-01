@@ -68,6 +68,14 @@ def create_app(
     db.init_app(app)
     ma.init_app(app)
     API.init_app(app)
+    
+    # Add custom template filters
+    @app.template_filter('truncate')
+    def truncate_filter(s, length=100, end='...'):
+        if len(s) <= length:
+            return s
+        return s[:length] + end
+    
     setup_jwt_manager(app, jwt)
     with app.app_context():
         register_error_handlers(API)
