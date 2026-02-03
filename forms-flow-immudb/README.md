@@ -157,15 +157,22 @@ pytest tests/test_api.py
 ```
 forms-flow-immudb/
 ├── .env                          # Environment configuration
+├── .env.example                  # Environment template
+├── .dockerignore                 # Docker build exclusions
+├── Dockerfile                    # Docker image definition
+├── docker-compose.yml            # Docker Compose for full stack
+├── entrypoint.sh                 # Container entrypoint script
 ├── requirements.txt              # Python dependencies
 ├── setup.py                      # Package setup
 ├── README.md                     # This file
+├── QUICKSTART.md                 # Quick start guide
 ├── logs/                         # Application logs
 ├── tests/                        # Test suite
 │   ├── __init__.py
 │   ├── test_service.py
 │   ├── test_api.py
-│   └── test_integration.py
+│   └── docker/
+│       └── docker-compose.yml    # Docker Compose for testing
 └── src/
     └── formsflow_immudb/
         ├── __init__.py
@@ -177,6 +184,9 @@ forms-flow-immudb/
         ├── resources/
         │   ├── __init__.py
         │   └── report.py        # Report Blueprint
+        ├── utils/
+        │   ├── __init__.py
+        │   └── auth.py          # Authentication utilities
         └── api/
             ├── __init__.py
             └── audit_api.py     # RESTful API endpoints
@@ -224,7 +234,7 @@ Expected response:
 # Build image
 docker build -t forms-flow-immudb:latest .
 
-# Run container
+# Run container (requires external ImmuDB)
 docker run -d \
   -p 5001:5001 \
   --env-file .env \
@@ -232,9 +242,62 @@ docker run -d \
   forms-flow-immudb:latest
 ```
 
-### Docker Compose
+### Docker Compose (Recommended)
 
-See `docker-compose.yml` for a complete setup including ImmuDB.
+The easiest way to run the complete stack including ImmuDB:
+
+```bash
+# Copy environment template
+cp .env.example .env
+
+# Edit .env with your configuration (especially SECRET_KEY and IMMUDB_SECRET_KEY)
+nano .env
+
+# Start all services
+docker-compose up -d
+
+# View logs
+docker-compose logs -f forms-flow-immudb
+
+# Stop services
+docker-compose down
+```
+
+The `docker-compose.yml` includes:
+- **immudb**: The ImmuDB database on ports 3322 (gRPC), 8080 (Web Console), 9497 (Metrics)
+- **forms-flow-immudb**: The worker service on port 5001
+
+### Docker Compose for Testing
+
+For running integration tests with Docker:
+
+```bash
+# Start test environment
+docker-compose -f tests/docker/docker-compose.yml up -d
+
+# Run tests
+pytest tests/
+
+# Stop test environment
+docker-compose -f tests/docker/docker-compose.yml down
+```
+
+### Production Deployment Notes
+
+1. **Generate secure keys**:
+   ```bash
+   # Generate SECRET_KEY
+   python -c "import secrets; print(secrets.token_hex(32))"
+   
+   # Generate IMMUDB_SECRET_KEY (Fernet key)
+   python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+   ```
+
+2. **Configure CORS**: Set `CORS_ORIGINS` to your specific domains instead of `*`
+
+3. **Use external ImmuDB**: For production, consider running ImmuDB on dedicated infrastructure
+
+4. **Set log level**: Use `LOG_LEVEL=WARNING` or `LOG_LEVEL=ERROR` in production
 
 ## Troubleshooting
 

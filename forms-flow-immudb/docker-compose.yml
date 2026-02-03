@@ -1,0 +1,77 @@
+version: '3.7'
+
+services:
+  # ImmuDB Database
+  immudb:
+    image: codenotary/immudb:latest
+    restart: unless-stopped
+    ports:
+      - '3322:3322'   # gRPC
+      - '8080:8080'   # REST API / Web Console
+      - '9497:9497'   # Metrics
+    volumes:
+      - immudb-data:/var/lib/immudb
+    environment:
+      IMMUDB_ADDRESS: "0.0.0.0"
+      IMMUDB_PORT: 3322
+      IMMUDB_ADMIN_PASSWORD: ${IMMUDB_ADMIN_PASSWORD:-immudb}
+    networks:
+      - forms-flow-immudb-network
+    healthcheck:
+      test: ["CMD", "immuadmin", "status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # Forms Flow ImmuDB Worker Service
+  forms-flow-immudb:
+    build:
+      context: ./
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      immudb:
+        condition: service_healthy
+    ports:
+      - '5001:5001'
+    volumes:
+      - ./logs:/forms-flow-immudb/app/logs:rw
+    environment:
+      # Flask Configuration
+      SECRET_KEY: ${SECRET_KEY:-change-me-in-production}
+      DEBUG: ${DEBUG:-false}
+      HOST: 0.0.0.0
+      PORT: ${PORT:-5001}
+      FLASK_ENV: ${FLASK_ENV:-production}
+
+      # ImmuDB Configuration
+      IMMUDB_ENABLED: ${IMMUDB_ENABLED:-true}
+      IMMUDB_HOST: ${IMMUDB_HOST:-immudb:3322}
+      IMMUDB_USER: ${IMMUDB_USER:-immudb}
+      IMMUDB_PASS: ${IMMUDB_PASS:-immudb}
+      IMMUDB_SECRET_KEY: ${IMMUDB_SECRET_KEY}
+
+      # API Configuration
+      API_PREFIX: ${API_PREFIX:-/api/v1}
+      CORS_ORIGINS: ${CORS_ORIGINS:-*}
+
+      # Logging Configuration
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+
+      # Gunicorn Configuration
+      GUNICORN_WORKERS: ${GUNICORN_WORKERS:-4}
+      GUNICORN_THREADS: ${GUNICORN_THREADS:-10}
+      GUNICORN_TIMEOUT: ${GUNICORN_TIMEOUT:-120}
+
+    stdin_open: true
+    tty: true
+    networks:
+      - forms-flow-immudb-network
+
+networks:
+  forms-flow-immudb-network:
+    driver: 'bridge'
+
+volumes:
+  immudb-data:
