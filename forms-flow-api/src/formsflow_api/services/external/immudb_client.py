@@ -58,8 +58,8 @@ class ImmudbService:
             index_keys (list, optional): Keys to index.
         """
         try:
-            worker_url = current_app.config.get("IMMUDB_WORKER_URL", "http://localhost:5001/api/v1")
-            worker_enabled = current_app.config.get("IMMUDB_WORKER_ENABLED", True)
+            worker_url = current_app.config.get("IMMUDB_WORKER_URL")
+            worker_enabled = current_app.config.get("IMMUDB_WORKER_ENABLED")
             
             if not worker_enabled:
                 return False
@@ -89,7 +89,7 @@ class ImmudbService:
     def query_logs(self, **kwargs):
         """Query logs from the worker's REST API."""
         try:
-            worker_url = current_app.config.get("IMMUDB_WORKER_URL", "http://localhost:5001/api/v1")
+            worker_url = current_app.config.get("IMMUDB_WORKER_URL")
             response = requests.get(
                 f"{worker_url}/audit/query", 
                 params=kwargs, 
