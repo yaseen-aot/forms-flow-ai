@@ -73,6 +73,9 @@ services:
       - forms-flow-bpm-db
     ports:
       - '8000:8080'
+    volumes:
+      - ./plugins/audit-plugin.jar:/app/plugins/audit-plugin.jar
+    entrypoint: ["java", "-Djava.security.egd=file:/dev/./urandom", "-Dloader.path=/app/plugins", "-cp", "/app/forms-flow-bpm.jar", "org.springframework.boot.loader.launch.PropertiesLauncher"]
     environment:
       - KEYCLOAK_URL=${KEYCLOAK_URL}
       - KEYCLOAK_URL_REALM=${KEYCLOAK_URL_REALM:-forms-flow-ai}
@@ -83,6 +86,8 @@ services:
       - CAMUNDA_JDBC_USER=${CAMUNDA_JDBC_USER:-admin}
       - CAMUNDA_JDBC_PASSWORD=${CAMUNDA_JDBC_PASSWORD:-changeme}
       - CAMUNDA_JDBC_DRIVER=${CAMUNDA_JDBC_DRIVER:-org.postgresql.Driver}
+      - IMMUDB_SERVICE_URL=${IMMUDB_SERVICE_URL}
+      - IMMUDB_AUTH_TOKEN=${IMMUDB_AUTH_TOKEN}
 #      - SERVER_MAX_HTTP_REQUEST_HEADER_SIZE=${SERVER_MAX_HTTP_REQUEST_HEADER_SIZE:-8192}
 #      - CAMUNDA_HIKARI_CONN_TIMEOUT=${CAMUNDA_HIKARI_CONN_TIMEOUT}
 #      - CAMUNDA_HIKARI_IDLE_TIMEOUT=${CAMUNDA_HIKARI_IDLE_TIMEOUT}
