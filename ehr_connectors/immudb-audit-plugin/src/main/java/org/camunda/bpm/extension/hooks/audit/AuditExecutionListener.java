@@ -74,7 +74,8 @@ public class AuditExecutionListener implements ExecutionListener {
 
             // 3. Final Payload structure for Immudb API
             Map<String, Object> finalPayload = new HashMap<>();
-            finalPayload.put("event_name", "BPMN_" + execution.getEventName().toUpperCase() + "_"
+            String eventName = execution.getEventName();
+            finalPayload.put("event_name", "BPMN_" + (eventName != null ? eventName.toUpperCase() : "UNKNOWN") + "_"
                     + (execution.getCurrentActivityId() != null ? execution.getCurrentActivityId() : "NONE"));
             finalPayload.put("request_data", requestData);
             finalPayload.put("response_data", responseData);
@@ -84,8 +85,8 @@ public class AuditExecutionListener implements ExecutionListener {
             // 4. Send to Immudb Service Asynchronously
             sendToImmudb(finalPayload);
 
-        } catch (Exception e) {
-            LOGGER.error("Failed to capture audit log for activity: " + execution.getCurrentActivityId(), e);
+        } catch (Throwable t) {
+            LOGGER.error("Failed to capture audit log for activity: " + execution.getCurrentActivityId(), t);
         }
     }
 

@@ -3,6 +3,9 @@ uvicorn
 python-dotenv
 httpx
 pytest
+pytest-asyncio
 respx
 pydantic
 pydantic-settings
+PyJWT[crypto]
+cryptography
