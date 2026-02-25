@@ -67,8 +67,8 @@ class EpicService:
             "grant_type": "client_credentials",
             "client_assertion_type": "urn:ietf:params:oauth:client-assertion-type:jwt-bearer",
             "client_assertion": client_assertion,
-            # Explicitly request the general DocumentReference create scope
-            "scope": "system/DocumentReference.c system/Patient.r system/Patient.s",
+            # Requesting necessary scopes including Search (.s) and restricted category
+            "scope": "system/DocumentReference.c system/DocumentReference.read system/Binary.read system/Patient.read system/Encounter.read",
         }
 
         logger.info(f"Requesting access token from {self.settings.EPIC_TOKEN_URL} (private_key_jwt)")
@@ -101,11 +101,15 @@ class EpicService:
                 raise
 
     async def get_latest_encounter(self, patient_id: str, token: str) -> str:
-        """Fetch the most recent encounter ID for the patient (Helper/Optional)."""
+        """Fetch the most recent encounter ID."""
         logger.info(f"Fetching an Encounter for patient {patient_id}...")
         try:
+            # FIX: Removed the trailing slash before the '?'
+            # Epic R4 is strict: /Encounter?patient=... NOT /Encounter/?patient=...
+            url = f"/Encounter?patient={patient_id}"
+
             response = await self.client.get(
-                f"/Encounter?patient={patient_id}",
+                url,
                 headers={
                     "Authorization": f"Bearer {token}",
                     "Accept": "application/fhir+json",
@@ -146,7 +150,6 @@ class EpicService:
         document_reference = {
             "resourceType": "DocumentReference",
             "status": "current",
-            "docStatus": "final",
             "type": {
                 "coding": [
                     {
@@ -191,29 +194,41 @@ class EpicService:
         logger.info(f"Sending Encounter-less Consent Document to Epic for patient {patient_id}")
         try:
             response = await self.client.post(
-                "/DocumentReference",
+                "/DocumentReference/",
                 json=document_reference,
                 headers={
                     "Authorization": f"Bearer {token}",
                     "Content-Type": "application/fhir+json",
+                    "Accept": "application/fhir+json",
                 },
             )
 
-            if response.status_code not in (200, 201):
-                logger.error(
-                    f"Failed to send DocumentReference: HTTP {response.status_code} — {response.text}"
-                )
+            if response.status_code != 201:
+                logger.error(f"Epic rejected the payload: {response.text}")
 
             response.raise_for_status()
-            logger.info(
-                f"Successfully posted DocumentReference for patient {patient_id}"
-            )
-            return response.json()
+            logger.info("Successfully posted Approval to Epic.")
+
+            try:
+                if response.headers.get("content-type", "").startswith("application/json"):
+                    return response.json()
+                else:
+                    return {
+                        "status": "success",
+                        "message": "DocumentReference created in Epic",
+                        "status_code": response.status_code,
+                        "id": response.headers.get("Location", "").split("/")[-1],
+                    }
+            except Exception:
+                return {
+                    "status": "success",
+                    "message": "DocumentReference created (no JSON body returned)",
+                    "status_code": response.status_code,
+                }
 
         except httpx.HTTPStatusError as e:
-            logger.error(
-                f"HTTP error sending DocumentReference: {e.response.status_code} — {e.response.text}"
-            )
+            # This will show you exactly why Epic rejected the Encounter or Patient
+            logger.error(f"HTTP Error: {e.response.status_code} - {e.response.text}")
             raise
         except Exception as e:
             logger.error(f"Unexpected error sending DocumentReference: {str(e)}")

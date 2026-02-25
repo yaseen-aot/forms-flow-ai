@@ -15,8 +15,23 @@ async def test_approve_to_epic_success():
     # Mock token request
     token_route = respx.post(settings.EPIC_TOKEN_URL).mock(return_value=httpx.Response(200, json={"access_token": "fake_token"}))
     
-    # Mock DocumentReference request
-    doc_route = respx.post(f"{settings.EPIC_FHIR_BASE_URL}/DocumentReference").mock(return_value=httpx.Response(201, json={"id": "123", "resourceType": "DocumentReference"}))
+    # Mock Encounter search
+    encounter_route = respx.get(
+        f"{settings.EPIC_FHIR_BASE_URL}/Encounter?patient=test_patient"
+    ).mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "resourceType": "Bundle",
+                "entry": [
+                    {"resource": {"id": "fake_encounter", "resourceType": "Encounter"}}
+                ],
+            },
+        )
+    )
+
+    # Mock DocumentReference request (with trailing slash)
+    doc_route = respx.post(f"{settings.EPIC_FHIR_BASE_URL}/DocumentReference/").mock(return_value=httpx.Response(201, json={"id": "123", "resourceType": "DocumentReference"}))
     
     response = client.post(
         "/epic/approve",
@@ -31,6 +46,7 @@ async def test_approve_to_epic_success():
     assert response.json()["ok"] is True
     assert response.json()["result"]["id"] == "123"
     assert token_route.called
+    assert encounter_route.called
     assert doc_route.called
 
 @pytest.mark.asyncio
