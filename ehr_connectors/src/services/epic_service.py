@@ -134,7 +134,7 @@ class EpicService:
             return None
 
     async def send_approval_status(
-        self, patient_id: str, consent_text: str, approved_at: str = None
+        self, patient_id: str, consent_text: str, surrogate_key: str = None, approved_at: str = None
     ):
         """
         Send a general DocumentReference (Patient Media / Consent) to Epic.
@@ -146,28 +146,42 @@ class EpicService:
         token_data = await self.get_access_token()
         token = token_data["access_token"]
 
+        # Fetch latest encounter ID for the patient
+        encounter_id = await self.get_latest_encounter(patient_id, token)
+        if not encounter_id:
+            logger.warning(f"No encounter found for patient {patient_id}. Epic may reject this.")
+
         # Build the exact payload for a general patient consent
         document_reference = {
             "resourceType": "DocumentReference",
             "status": "current",
+            "masterIdentifier": {
+                "system": "http://formsflow.ai/surrogate-key",
+                "value": surrogate_key
+            } if surrogate_key else None,
+            "identifier": [
+                {
+                    "system": "http://formsflow.ai/surrogate-key",
+                    "value": surrogate_key
+                }
+            ] if surrogate_key else [],
             "type": {
                 "coding": [
                     {
                         "system": "http://loinc.org",
-                        "code": "34133-9",
-                        "display": "Summary of episode note",
+                        "code": "11506-3",
+                        "display": "Progress note",
                     }
                 ],
                 "text": "Patient Consent Form",
             },
-            # THIS BLOCK IS THE KEY TO FIXING THE 403 ERROR:
             "category": [
                 {
                     "coding": [
                         {
                             "system": "http://hl7.org/fhir/us/core/CodeSystem/us-core-documentreference-category",
-                            "code": "reference",  # FORCE it to 'reference', NOT 'clinical-note'
-                            "display": "Reference",
+                            "code": "clinical-note",
+                            "display": "Clinical Note",
                         }
                     ]
                 }
@@ -184,14 +198,21 @@ class EpicService:
                 {
                     "attachment": {
                         "contentType": "text/plain",
-                        "data": base64.b64encode(consent_text.encode()).decode(),
-                        "title": "Patient Consent Form",
+                        "data": base64.b64encode(
+                            (consent_text + (f" The surrogate Key is {surrogate_key}" if surrogate_key else "")).encode()
+                        ).decode(),
+                        "title": f"Patient Consent Form - Ref: {surrogate_key}" if surrogate_key else "Patient Consent Form",
                     }
                 }
             ],
+            "context": {
+                "encounter": [{"reference": f"Encounter/{encounter_id}"}]
+            } if encounter_id else {},
         }
 
-        logger.info(f"Sending Encounter-less Consent Document to Epic for patient {patient_id}")
+        import json
+        logger.info(f"Sending DocumentReference to Epic: {json.dumps(document_reference, indent=2)}")
+        
         try:
             response = await self.client.post(
                 "/DocumentReference/",
@@ -233,3 +254,58 @@ class EpicService:
         except Exception as e:
             logger.error(f"Unexpected error sending DocumentReference: {str(e)}")
             raise
+
+    async def search_documents(self, patient_id: str):
+        """
+        Search for DocumentReferences for a patient.
+        """
+        token_data = await self.get_access_token()
+        token = token_data["access_token"]
+        
+        url = f"/DocumentReference?patient={patient_id}"
+        logger.info(f"Searching DocumentReferences for patient {patient_id}...")
+        
+        try:
+            response = await self.client.get(
+                url,
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "Accept": "application/fhir+json",
+                },
+            )
+            response.raise_for_status()
+            return response.json()
+        except httpx.HTTPStatusError as e:
+            logger.error(f"HTTP Error searching documents: {e.response.status_code} - {e.response.text}")
+            raise
+        except Exception as e:
+            logger.error(f"Unexpected error searching documents: {str(e)}")
+            raise
+
+    async def get_binary(self, binary_id: str):
+        """
+        Fetch a Binary file from Epic.
+        """
+        token_data = await self.get_access_token()
+        token = token_data["access_token"]
+        
+        url = f"/Binary/{binary_id}"
+        logger.info(f"Fetching Binary {binary_id}...")
+        
+        try:
+            response = await self.client.get(
+                url,
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "Accept": "application/fhir+json",
+                },
+            )
+            response.raise_for_status()
+            return response.content
+        except httpx.HTTPStatusError as e:
+            logger.error(f"HTTP Error fetching binary: {e.response.status_code} - {e.response.text}")
+            raise
+        except Exception as e:
+            logger.error(f"Unexpected error fetching binary: {str(e)}")
+            raise
+

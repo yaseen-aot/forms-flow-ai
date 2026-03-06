@@ -62,12 +62,23 @@ public class AuditExecutionListener implements ExecutionListener {
             requestData.put("eventName", execution.getEventName());
             requestData.put("timestamp", Instant.now().toString());
 
+            // Add surrogate key for end-to-end traceability
+            if (execution.hasVariable("surrogateKey")) {
+                requestData.put("surrogateKey", execution.getVariable("surrogateKey"));
+            }
+
             if (execution.hasVariable("request")) {
                 requestData.put("connectorRequest", execution.getVariable("request"));
             }
 
             // 2. Prepare Response Data
             Map<String, Object> responseData = new HashMap<>();
+            
+            // Add surrogate key for end-to-end traceability
+            if (execution.hasVariable("surrogateKey")) {
+                responseData.put("surrogateKey", execution.getVariable("surrogateKey"));
+            }
+            
             if (execution.hasVariable("response")) {
                 responseData.put("connectorResponse", execution.getVariable("response"));
             }
@@ -77,6 +88,12 @@ public class AuditExecutionListener implements ExecutionListener {
             String eventName = execution.getEventName();
             finalPayload.put("event_name", "BPMN_" + (eventName != null ? eventName.toUpperCase() : "UNKNOWN") + "_"
                     + (execution.getCurrentActivityId() != null ? execution.getCurrentActivityId() : "NONE"));
+            
+            // Add surrogate key at top level for easier querying and traceability
+            if (execution.hasVariable("surrogateKey")) {
+                finalPayload.put("surrogateKey", execution.getVariable("surrogateKey"));
+            }
+            
             finalPayload.put("request_data", requestData);
             finalPayload.put("response_data", responseData);
             finalPayload.put("tenant_id", "default");

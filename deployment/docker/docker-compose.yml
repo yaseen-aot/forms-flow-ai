@@ -74,8 +74,8 @@ services:
     ports:
       - '8000:8080'
     volumes:
-      - ./plugins/audit-plugin.jar:/app/plugins/audit-plugin.jar
-    entrypoint: ["java", "-Djava.security.egd=file:/dev/./urandom", "-Dloader.path=/app/plugins", "-cp", "/app/forms-flow-bpm.jar", "org.springframework.boot.loader.launch.PropertiesLauncher"]
+      - ./plugins:/app/plugins
+    entrypoint: ["java", "-Djava.security.egd=file:/dev/./urandom", "-Dloader.path=/app/plugins", "-jar", "/app/forms-flow-bpm.jar"]
     environment:
       - KEYCLOAK_URL=${KEYCLOAK_URL}
       - KEYCLOAK_URL_REALM=${KEYCLOAK_URL_REALM:-forms-flow-ai}
