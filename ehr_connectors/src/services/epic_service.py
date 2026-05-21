@@ -13,7 +13,10 @@ logger = logging.getLogger(__name__)
 class EpicService:
     def __init__(self):
         self.settings = get_settings()
-        self.client = httpx.AsyncClient(base_url=self.settings.EPIC_FHIR_BASE_URL)
+        self.client = httpx.AsyncClient(
+            base_url=self.settings.EPIC_FHIR_BASE_URL,
+            timeout=self.settings.EPIC_TIMEOUT,
+        )
 
     def _generate_client_jwt(self) -> str:
         """
@@ -73,7 +76,7 @@ class EpicService:
 
         logger.info(f"Requesting access token from {self.settings.EPIC_TOKEN_URL} (private_key_jwt)")
 
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=self.settings.EPIC_TIMEOUT) as client:
             try:
                 response = await client.post(
                     self.settings.EPIC_TOKEN_URL,
@@ -308,4 +311,3 @@ class EpicService:
         except Exception as e:
             logger.error(f"Unexpected error fetching binary: {str(e)}")
             raise
-

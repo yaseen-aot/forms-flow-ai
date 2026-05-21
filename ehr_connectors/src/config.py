@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     EPIC_PRIVATE_KEY: str
     # EPIC_KID: the Key ID (kid) that matches the public key you registered with Epic
     EPIC_KID: str
+    EPIC_TIMEOUT: float = 30.0
 
     # Server config
     PORT: int = 8002
