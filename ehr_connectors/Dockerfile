@@ -19,5 +19,5 @@ EXPOSE 8002 8003
 # Setup entrypoint script
 RUN chmod +x entrypoint.sh
 
-ENTRYPOINT ["/bin/sh", "entrypoint.sh"]
+ENTRYPOINT ["/bin/bash", "entrypoint.sh"]
 
