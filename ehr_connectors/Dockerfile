@@ -1,9 +1,10 @@
 FROM python:3.12-slim-bookworm
 
 # Set labels
+LABEL Name="formsflow-ehr-connectors"
 LABEL Description="EHR Connectors - JWKS and main Epic connector service"
 
-WORKDIR /app
+WORKDIR /forms-flow-ehr-connectors/app
 
 # Install dependencies
 COPY requirements.txt .
@@ -18,4 +19,5 @@ EXPOSE 8002 8003
 # Setup entrypoint script
 RUN chmod +x entrypoint.sh
 
-ENTRYPOINT ["/bin/sh", "/app/entrypoint.sh"]
+ENTRYPOINT ["/bin/sh", "entrypoint.sh"]
+
