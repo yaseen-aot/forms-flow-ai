@@ -31,10 +31,11 @@ async def lifespan(app: FastAPI):
     """Load JWKS data on startup."""
     global _jwks_data
     logger.info("--- JWKS SERVER VERSION 1.2 ---")
-
     # Try loading from environment variable first
     env_jwks = os.environ.get("JWKS_JSON")
     if env_jwks:
+        # Strip leading/trailing single or double quotes added by some .env parsers
+        env_jwks = env_jwks.strip("'\"")
         try:
             _jwks_data = json.loads(env_jwks)
             kids = [k.get("kid", "NO-KID") for k in _jwks_data.get("keys", [])]
