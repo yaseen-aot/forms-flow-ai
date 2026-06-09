@@ -13,4 +13,4 @@ LABEL Description="ImmuDB Audit Plugin for Camunda"
 WORKDIR /forms-flow-immudb-plugin/app
 
 COPY --from=builder /forms-flow-immudb-plugin/app/target/immudb-audit-plugin-*.jar ./audit-plugin.jar
-CMD ["cp", "audit-plugin.jar", "/shared-plugins/audit-plugin.jar"]
+CMD ["sh", "-c", "mkdir -p /shared-plugins && cp audit-plugin.jar /shared-plugins/audit-plugin.jar"]
