@@ -7,7 +7,7 @@ const BUCKET = process.env.BUCKET;
 import Walk from "@root/walk";
 import path from "path";
 const VERSION = process.env.VERSION;
-const component = `forms-flow-web@${VERSION}`;
+const component = `forms-flow-web@${VERSION}-epic`;
 
 const compressFileAndUpload = (fileName, filePath) => {
   const stream = createReadStream(`${filePath}/${fileName}`);

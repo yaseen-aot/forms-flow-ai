@@ -3,7 +3,7 @@ name: Push Forms flow API to registry
 on:
   workflow_dispatch:
   push:
-    branches: [ master, develop, release/* ]
+    branches: [ master, develop, release/*, epic ]
     paths:
       - "forms-flow-api/**"
       - "VERSION"
@@ -16,12 +16,12 @@ defaults:
 
 jobs:
   build-and-push-image-to-dockerhub:
-    if: github.repository == 'AOT-Technologies/forms-flow-ai'
+    if: github.repository == 'AOT-Technologies/forms-flow-ai-EPIC'
     runs-on: ubuntu-latest
     strategy:
       matrix:
         include:
-          - image: formsflow/forms-flow-webapi
+          - image: formsflow/epic-forms-flow-webapi
             context: forms-flow-api
             dockerfile: Dockerfile
             name: forms-flow-api
@@ -102,7 +102,7 @@ jobs:
           context: forms-flow-api
           push: true
           platforms: linux/amd64,linux/arm64/v8
-          tags: ${{ steps.meta.outputs.tags }}, formsflow/forms-flow-webapi:latest
+          tags: ${{ steps.meta.outputs.tags }}, formsflow/epic-forms-flow-webapi:latest
           labels: ${{ steps.meta.outputs.labels }}
       - name: Set up AWS CLI
         uses: aws-actions/configure-aws-credentials@v1
@@ -119,5 +119,5 @@ jobs:
         run: aws eks update-kubeconfig --region ca-central-1 --name ${{ secrets.DEV_EKS_CLUSTER }}
       - name: Deploy to eks
         run: |
-          kubectl -n ${{ secrets.DEV_OPENSOURCE_NAMESPACE }} patch deployment forms-flow-api -p '{"spec":{"template":{"spec":{"containers":[{"name":"forms-flow-api","image":"docker.io/formsflow/forms-flow-webapi:${{ env.VERSION }}"}]}}}}'
+          kubectl -n ${{ secrets.DEV_OPENSOURCE_NAMESPACE }} patch deployment forms-flow-api -p '{"spec":{"template":{"spec":{"containers":[{"name":"forms-flow-api","image":"docker.io/formsflow/epic-forms-flow-webapi:${{ env.VERSION }}"}]}}}}'
           kubectl -n ${{ secrets.DEV_OPENSOURCE_NAMESPACE }} rollout restart deployment forms-flow-api
