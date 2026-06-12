@@ -36,6 +36,34 @@ function isPrimitive(val) {
     (typeof val === 'string' || typeof val === 'number' || typeof val === 'boolean');
 }
 
+function formatByMask(digits, mask) {
+  if (!mask || typeof mask !== 'string') return digits;
+  let result = '';
+  let digitIdx = 0;
+  for (let i = 0; i < mask.length; i++) {
+    const char = mask[i];
+    if (char === '9') {
+      if (digitIdx < digits.length) {
+        result += digits[digitIdx++];
+      } else {
+        break;
+      }
+    } else {
+      result += char;
+    }
+  }
+  return result;
+}
+
+function formatPhoneNumber(value, mask = '(999) 999-9999') {
+  if (!value) return '';
+  let digits = String(value).replace(/\D/g, '');
+  if (digits.length === 11 && digits.startsWith('1')) {
+    digits = digits.substring(1);
+  }
+  return formatByMask(digits, mask);
+}
+
 // =============================================================================
 // Step 1: Collect form fields
 // =============================================================================
@@ -72,7 +100,9 @@ function collectFormFields(form) {
 
     fields.push({
       key: component.key,
-      text: Array.from(searchParts).filter(Boolean)
+      text: Array.from(searchParts).filter(Boolean),
+      type: component.type,
+      inputMask: component.inputMask
     });
   };
 
@@ -379,12 +409,34 @@ export function mapPatientToFormio(data, form) {
   const used = new Set();
   const matches = [];
 
+  // Directly assign patient fhir ID to patientId field if it exists
+  if (data.id) {
+    const patientIdField = formFields.find(f => f.key === 'patientId');
+    if (patientIdField) {
+      assignments['patientId'] = String(data.id);
+      used.add('patientId');
+      matches.push({ field: 'patientId', from: 'id', score: 1.0 });
+    } else {
+      // Fallback: push to flatData to match dynamically
+      flatData.push({
+        path: 'id',
+        label: 'patient fhir number id',
+        value: String(data.id)
+      });
+    }
+  }
+
   flatData.forEach(entry => {
     const { field, score } = findBestField(entry, formFields);
     // Require minimum score of 0.3 to avoid poor matches
     if (field && score >= 0.3) {
       if (!used.has(field.key)) {
-        assignments[field.key] = entry.value;
+        let value = entry.value;
+        // Format phone number to match the inputMask if it's a phone field
+        if (field.type === 'phoneNumber' || field.key.toLowerCase().includes('phone') || (field.inputMask && field.inputMask.includes('9'))) {
+          value = formatPhoneNumber(value, field.inputMask);
+        }
+        assignments[field.key] = value;
         used.add(field.key);
         matches.push({ field: field.key, from: entry.path, score: Number(score.toFixed(2)) });
       }
