@@ -13,6 +13,7 @@ RUN  apt-get update \
   && apt-get install -y wget \
   && apt-get install -y unzip \
   && apt-get install -y git \
+  && apt-get install -y gcc libffi-dev python3-dev \
   && rm -rf /var/lib/apt/lists/*
 
 # Install Chrome WebDriver - version 116.0.5845.96
@@ -45,7 +46,7 @@ ADD . /forms-flow-documents/app
 RUN pip install -e . && \
     pip uninstall ecdsa -y && \
     apt-get remove -y \
-    git unzip \
+    git unzip gcc libffi-dev python3-dev \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
