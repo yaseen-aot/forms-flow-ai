@@ -87,10 +87,7 @@ public class OAuth2LoginSecurityConfig  {
 
 		return http
 				.csrf(AbstractHttpConfigurer::disable)
-				.securityMatcher(new org.springframework.security.web.util.matcher.OrRequestMatcher(
-						antMatcher("/engine-rest-ext/**"),
-						antMatcher("/engine-rest/**")
-				))
+				.securityMatcher(AntPathRequestMatcher.antMatcher("/engine-rest-ext/**"))
 				.authorizeHttpRequests(auth -> auth				 
 						.requestMatchers(
 								antMatcher(HttpMethod.OPTIONS,"/engine-rest-ext/v1/**"),
@@ -98,6 +95,7 @@ public class OAuth2LoginSecurityConfig  {
 								antMatcher(HttpMethod.OPTIONS, "/engine-rest/**"),
 								antMatcher("/engine-rest-ext/v1/**"))
 						.permitAll()
+						.requestMatchers(antMatcher("/engine-rest-ext/**")).denyAll()
 						.anyRequest().authenticated())
 				.oauth2ResourceServer(oauth2ResourceServer -> oauth2ResourceServer
 						.jwt(jwt -> jwt

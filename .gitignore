@@ -1,11 +1,4 @@
 # See https://help.github.com/ignore-files/ for more about ignoring files.
-/forms-flow-ai-ee-presales
-
-# Java/Maven Build Targets
-**/target/
-# Logs
-*.log
-**/logs/
 
 # dependencies
 **/node_modules
