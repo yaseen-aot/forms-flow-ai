@@ -6,7 +6,6 @@
 # Logs
 *.log
 **/logs/
-.claude
 
 # dependencies
 **/node_modules
