@@ -75,7 +75,7 @@ services:
       - '8000:8080'
     volumes:
       - ./plugins:/app/plugins
-    entrypoint: ["java", "-Djava.security.egd=file:/dev/./urandom", "-Dloader.path=/app/plugins", "-jar", "/app/forms-flow-bpm.jar"]
+    entrypoint: ["java", "-Djava.security.egd=file:/dev/./urandom", "-Dmail.user=${MAIL_USER}", "-Dmail.password=${MAIL_PASSWORD}", "-Dloader.path=/app/plugins", "-jar", "/app/forms-flow-bpm.jar"]
     environment:
       - KEYCLOAK_URL=${KEYCLOAK_URL}
       - KEYCLOAK_URL_REALM=${KEYCLOAK_URL_REALM:-forms-flow-ai}
@@ -140,6 +140,8 @@ services:
       - CSS_ENV=${CSS_ENV:-}
       - CSS_INTEGRATION_ID=${CSS_INTEGRATION_ID:-}
       - USER_NAME_DISPLAY_CLAIM=${USER_NAME_DISPLAY_CLAIM:-}
+      - MAIL_USER=${MAIL_USER}
+      - MAIL_PASSWORD=${MAIL_PASSWORD}
     networks:
       - forms-flow-network
  
