@@ -458,8 +458,8 @@ def submit_form_details(token: str, data: dict, task_id: str, form_id: str) -> t
         if formsflow_api_url and application_id:
             try:
                 new_form_url = f"{form_api}/form/{form_id}/submission/{submission_id}"
-                # Use "Consent Signed" or the action value for the status
-                app_status = form_fields.get("applicationStatus", action_val)
+                # Use the action value (e.g. "Approved") for the completed application status
+                app_status = action_val
                 if not app_status:
                     app_status = "Approved"
 
