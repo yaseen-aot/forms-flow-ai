@@ -447,9 +447,8 @@ def submit_form_details(token: str, data: dict, task_id: str, form_id: str) -> t
         current_app.logger.info(f"Camunda complete Response Body: {complete_res.text}")
 
         if not complete_res.ok:
-            current_app.logger.error(f"Camunda submit-form FAILED [{complete_res.status_code}]: {complete_res.text}")
-            current_app.logger.error(f"Camunda submit-form payload sent: {complete_body}")
-            return {'error': 'submit_failed', 'message': f'Camunda error [{complete_res.status_code}]: {complete_res.text}'}, 500
+            current_app.logger.error(f"Camunda complete failed [{complete_res.status_code}]: {complete_res.text}")
+            complete_res.raise_for_status()
         else:
             current_app.logger.info(f"Camunda task {task_id} completed successfully.")
 

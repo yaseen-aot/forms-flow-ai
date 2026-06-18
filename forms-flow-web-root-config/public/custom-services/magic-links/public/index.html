@@ -462,74 +462,13 @@
 
           // 3. Render the form via Formio
           const formContainer = document.getElementById('formio');
-
-          // Set Form.io base URL so internals don't crash on null projectUrl
-          const formioProjectUrl = (window._env_ && window._env_.REACT_APP_FORMIO_DEFAULT_PROJECT_URL)
-            || `http://${hostname}:3001`;
-          Formio.setProjectUrl(formioProjectUrl);
-          Formio.setBaseUrl(formioProjectUrl);
-          console.log('[magic-link] Formio projectUrl set to:', formioProjectUrl);
-
-          // Deep-log the full schema so we can see every button's action/customAction
-          console.log('[magic-link] Raw schema received:', JSON.stringify(data.schema, null, 2));
-
-          // Walk all components and log any button with a custom function
-          const walkComponents = (components, path) => {
-            (components || []).forEach(c => {
-              if (c.type === 'button') {
-                console.log(`[magic-link] Button found at "${path}/${c.key}": action="${c.action}" customAction=${JSON.stringify(c.customAction)} event="${c.event}"`);
-              }
-              if (c.components) walkComponents(c.components, `${path}/${c.key}`);
-              if (c.columns) c.columns.forEach(col => walkComponents(col.components, `${path}/${c.key}/col`));
-              if (c.rows) c.rows.forEach(row => row.forEach(cell => walkComponents(cell.components, `${path}/${c.key}/row`)));
-            });
-          };
-          walkComponents(data.schema.components, 'root');
-
-          // Sanitise schema: replace custom/url button actions with 'submit'
-          // to prevent Form.io's custom function runner from crashing on
-          // missing projectUrl / groups when there is no authenticated session.
-          const sanitizeButtons = (components) => {
-            (components || []).forEach(c => {
-              if (c.type === 'button') {
-                const originalAction = c.action;
-                const originalCustom = c.customAction;
-                if (c.action === 'custom' || c.action === 'url') {
-                  console.log(`[magic-link] Sanitising button "${c.key}": replacing action="${c.action}" with "submit". Original customAction was:`, c.customAction);
-                  c.action = 'submit';
-                  delete c.customAction;
-                  delete c.custom;
-                  delete c.url;
-                }
-                // Also clear any event-action that runs custom code
-                if (c.action === 'event' && c.event) {
-                  console.log(`[magic-link] Sanitising event button "${c.key}": event="${c.event}" cleared`);
-                  c.action = 'submit';
-                  delete c.event;
-                }
-              }
-              if (c.components) sanitizeButtons(c.components);
-              if (c.columns) c.columns.forEach(col => sanitizeButtons(col.components));
-              if (c.rows) c.rows.forEach(row => row.forEach(cell => sanitizeButtons(cell.components)));
-            });
-          };
-          sanitizeButtons(data.schema.components);
-          console.log('[magic-link] Schema sanitised. Creating form...');
-
           Formio.createForm(formContainer, data.schema, {
             readOnly: false,
             noAlerts: true,
-            hooks: {
-              beforeSubmit: (submission, next) => {
-                console.log('[magic-link] beforeSubmit hook fired. Passing to our handler.');
-                next();
-              }
-            },
             buttonSettings: {
-              showCancel: false
+              showCancel: false // disable cancel inside public client
             }
           }).then(form => {
-            console.log('[magic-link] Form created successfully.');
             // Apply prefilled variables if they exist
             if (data.prefill) {
               form.submission = { data: data.prefill };
