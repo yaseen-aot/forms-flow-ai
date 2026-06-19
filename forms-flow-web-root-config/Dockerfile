@@ -49,7 +49,6 @@ ARG MF_FORMSFLOW_COMPONENTS_URL=https://forms-flow-microfrontends.aot-technologi
 ARG MF_FORMSFLOW_ADMIN_URL=https://forms-flow-microfrontends.aot-technologies.com/forms-flow-admin@v8.1.0-alpha/forms-flow-admin.gz.js
 ARG MF_FORMSFLOW_REVIEW_URL=https://forms-flow-microfrontends.aot-technologies.com/forms-flow-review@v8.1.0-alpha/forms-flow-review.gz.js
 ARG MF_FORMSFLOW_SUBMISSIONS_URL=https://forms-flow-microfrontends.aot-technologies.com/forms-flow-submissions@v8.1.0-alpha/forms-flow-submissions.gz.js
-ARG MF_FORMSFLOW_CUSTOM_SERVICES_UI_URL=https://forms-flow-presales-microfrontends.aot-technologies.com/forms-flow-custom-services-UI@v8.1.2/forms-flow-custom-services-UI.gz.js
 
 
 # Set environment variables
@@ -60,7 +59,6 @@ ENV MF_FORMSFLOW_COMPONENTS_URL ${MF_FORMSFLOW_COMPONENTS_URL}
 ENV MF_FORMSFLOW_ADMIN_URL ${MF_FORMSFLOW_ADMIN_URL}
 ENV MF_FORMSFLOW_REVIEW_URL ${MF_FORMSFLOW_REVIEW_URL}
 ENV MF_FORMSFLOW_SUBMISSIONS_URL ${MF_FORMSFLOW_SUBMISSIONS_URL}
-ENV MF_FORMSFLOW_CUSTOM_SERVICES_UI_URL ${MF_FORMSFLOW_CUSTOM_SERVICES_UI_URL}
 ENV NODE_ENV ${NODE_ENV}
 
 # Add `/app/node_modules/.bin` to $PATH
