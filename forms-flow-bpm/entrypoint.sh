@@ -1,33 +1,36 @@
 #!/bin/sh
-# Patch mail-config.properties inside the JAR with actual env var values
-# camunda-bpm-mail-core uses Properties.load() directly — ${VAR} is not resolved automatically.
 
-JAR=/app/forms-flow-bpm.jar
-PROPS=BOOT-INF/classes/mail-config.properties
-TMP=/tmp/mail-config.properties
+# Ensure config directory exists
+mkdir -p /app/config
 
-# Extract the properties file from the JAR
-unzip -p "$JAR" "$PROPS" > "$TMP"
+# Extract original mail-config.properties from the JAR using the JDK 'jar' tool
+mkdir -p /tmp/extract
+cd /tmp/extract
+jar xf /app/forms-flow-bpm.jar BOOT-INF/classes/mail-config.properties
 
-# Substitute placeholders with actual env values
-sed -i "s|\${MAIL_USER}|${MAIL_USER}|g" "$TMP"
-sed -i "s|\${MAIL_PASSWORD}|${MAIL_PASSWORD}|g" "$TMP"
+if [ -f BOOT-INF/classes/mail-config.properties ]; then
+  # Copy it as the base and append the environment-specific credentials
+  cp BOOT-INF/classes/mail-config.properties /app/config/mail-config.properties
+  echo "" >> /app/config/mail-config.properties
+  echo "mail.user=${MAIL_USER}" >> /app/config/mail-config.properties
+  echo "mail.password=${MAIL_PASSWORD}" >> /app/config/mail-config.properties
+  echo "Successfully generated /app/config/mail-config.properties with mail.user and mail.password variables."
+else
+  echo "Warning: Could not extract mail-config.properties from JAR, using fallbacks."
+fi
 
-# Update the JAR in-place with the patched file
-cd /tmp && zip -u "$JAR" "$PROPS" << 'EOF'
-EOF
-# zip needs the file at the same relative path
-mkdir -p /tmp/BOOT-INF/classes
-cp "$TMP" /tmp/BOOT-INF/classes/mail-config.properties
-cd /tmp && zip -u "$JAR" BOOT-INF/classes/mail-config.properties
+# Clean up temporary extraction directory
+rm -rf /tmp/extract
 
-echo "mail-config.properties patched with MAIL_USER=${MAIL_USER}"
+# Move back to /app directory so JVM has a valid current working directory (CWD)
+cd /app
 
-# Start the application
+# Start the application using PropertiesLauncher. We put /app/config first in loader.path
+# so that the dynamically generated mail-config.properties is loaded from the classpath.
 exec java \
   -Djava.security.egd=file:/dev/./urandom \
   -Dpolyglot.js.nashorn-compat=true \
   -Dpolyglot.engine.WarnInterpreterOnly=false \
-  -Dloader.path=/app/plugins \
+  -Dloader.path=/app/config,/app/plugins \
   -cp /app/forms-flow-bpm.jar \
   org.springframework.boot.loader.launch.PropertiesLauncher

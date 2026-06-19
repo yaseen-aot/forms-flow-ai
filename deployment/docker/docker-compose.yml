@@ -75,7 +75,7 @@ services:
       - '8000:8080'
     volumes:
       - ./plugins:/app/plugins
-    entrypoint: ["java", "-Djava.security.egd=file:/dev/./urandom", "-Dmail.user=${MAIL_USER}", "-Dmail.password=${MAIL_PASSWORD}", "-Dloader.path=/app/plugins", "-jar", "/app/forms-flow-bpm.jar"]
+    # entrypoint uses the Dockerfile default (entrypoint.sh) which boots with PropertiesLauncher and maps mail JVM flags
     environment:
       - KEYCLOAK_URL=${KEYCLOAK_URL}
       - KEYCLOAK_URL_REALM=${KEYCLOAK_URL_REALM:-forms-flow-ai}
@@ -144,7 +144,7 @@ services:
       - MAIL_PASSWORD=${MAIL_PASSWORD}
     networks:
       - forms-flow-network
- 
+
   forms-flow-web-root-config:
     container_name: forms-flow-web-root-config
     restart: always
@@ -170,7 +170,7 @@ services:
       - REACT_APP_LANGUAGE=${LANGUAGE:-en}
       - REACT_APP_API_PROJECT_URL=${FORMIO_DEFAULT_PROJECT_URL}
       - REACT_APP_KEYCLOAK_CLIENT=${KEYCLOAK_WEB_CLIENT_ID:-forms-flow-web}
-      - REACT_APP_WEB_BASE_URL=${FORMSFLOW_API_URL}
+      - REACT_APP_WEB_BASE_URL=http://localhost:5000
       - REACT_APP_BPM_URL=${BPM_API_URL}
       - REACT_APP_WEBSOCKET_ENCRYPT_KEY=${WEBSOCKET_ENCRYPT_KEY:-giert989jkwrgb@DR55}
       - REACT_APP_KEYCLOAK_URL_REALM=${KEYCLOAK_URL_REALM:-forms-flow-ai}
