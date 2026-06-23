@@ -19,12 +19,14 @@
     :root {
       --primary-color: #3b82f6;
       --primary-hover: #2563eb;
+      --secondary-hover: #808080;
       --bg-gradient-start: #0f172a;
       --bg-gradient-end: #1e1b4b;
       --card-bg: rgba(30, 41, 59, 0.7);
       --card-border: rgba(255, 255, 255, 0.08);
       --text-main: #f8fafc;
       --text-muted: #94a3b8;
+      --text-light: #a1a4a6;
     }
 
     body {
@@ -325,11 +327,19 @@
     }
 
     .choices__item--selectable {
-      color: var(--text-main) !important;
+      color: var(--text-light) !important;
     }
 
     .choices__list--dropdown .choices__item--active {
-      background-color: var(--primary-color) !important;
+      background-color: var(--secondary-hover) !important;
+    }
+
+    .formio-choices, .choices__inner, .choices__list--dropdown {
+      background-color: #0f172ae6 !important;
+    }
+
+    .choices__list--dropdown .choices__item--selectable.is-highlighted {
+      background-color: var(--secondary-hover) !important;
     }
 
     .signature-pad-body {

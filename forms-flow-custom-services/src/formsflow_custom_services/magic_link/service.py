@@ -432,9 +432,7 @@ def submit_form_details(token: str, data: dict, task_id: str, form_id: str) -> t
 
         # The Camunda BPMN workflow expects an 'action' variable (e.g. 'Approved', 'Rejected')
         # If the form didn't provide one, default to 'Approved' (which satisfies the gateway logic).
-        action_val = form_fields.get("action", form_fields.get("reviewerAction", "Approved"))
-        if not action_val:
-            action_val = "Approved"
+        action_val = form_fields.get("action") or form_fields.get("reviewerAction") or form_fields.get("actionType") or "Approved"
         variables["action"] = {"value": action_val}
 
         complete_body = {"variables": variables}

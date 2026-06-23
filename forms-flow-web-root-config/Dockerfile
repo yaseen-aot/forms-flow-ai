@@ -141,12 +141,15 @@ COPY forms-flow-web-root-config/nginx.conf /etc/nginx/nginx.conf
 # Expose port
 EXPOSE 8080
 
-# Install necessary packages (including gettext for envsubst)
-RUN apk add --no-cache bash gettext
+# # Install necessary packages (including gettext for envsubst)
+# RUN apk add --no-cache bash gettext
+RUN apk add --no-cache bash
 
-# Set execute permission for env.sh and fix CRLF line endings
-RUN sed -i 's/\r$//' /usr/share/nginx/html/config/env.sh && \
-    chmod +x /usr/share/nginx/html/config/env.sh
+# # Set execute permission for env.sh and fix CRLF line endings
+RUN chmod +x /usr/share/nginx/html/config/env.sh
+# RUN sed -i 's/\r$//' /usr/share/nginx/html/config/env.sh && \
+#     chmod +x /usr/share/nginx/html/config/env.sh
 
 # Start Nginx server with environment setup
-CMD ["/bin/bash", "-c", "/usr/share/nginx/html/config/env.sh && nginx -g \"daemon off;\""]
+# CMD ["/bin/bash", "-c", "/usr/share/nginx/html/config/env.sh && nginx -g \"daemon off;\""]
+CMD ["/bin/bash", "-c", "nginx -g \"daemon off;\""]

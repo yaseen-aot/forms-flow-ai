@@ -291,6 +291,11 @@ function findBestField(entry, formFields) {
     }
   });
   
+  // given[1] is middle name — override keywords so it doesn't collide with first name
+  if (/\.given\.([1-9]\d*)$/.test(entry.path)) {
+    entryKeywords = ['middle', 'middlename', 'middle name', 'middle initial', 'middleinitial'];
+  }
+  
   // Special handling for email - check if path contains 'email' system
   if (entryPathLower.includes('email')) {
     entryKeywords = entryKeywords.concat(fhirToFormMap['email']);
