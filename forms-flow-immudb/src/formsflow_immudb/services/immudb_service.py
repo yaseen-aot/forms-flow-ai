@@ -2,6 +2,7 @@
 
 import json
 import logging
+import threading
 from datetime import datetime, timezone
 from typing import Optional, Dict, List, Any
 
@@ -51,6 +52,7 @@ class ImmudbService:
         self.enabled = self._parse_bool(config.get('IMMUDB_ENABLED', True))
         self.config = config
         self.client = None
+        self._reconnect_lock = threading.RLock()
         
         if not self.enabled:
             logger.info("ImmuDB service disabled via configuration")
@@ -72,37 +74,50 @@ class ImmudbService:
             # We don't disable here completely, will retry on use
             pass
 
-    def _connect(self):
+    def _connect(self, failed_client=None):
         """Establish or refresh the ImmuDB connection."""
-        try:
-            if self.client:
-                try:
-                    self.shutdown()
-                except:
-                    pass
-                    
-            host = self.config.get('IMMUDB_HOST', 'localhost:3322')
-            user = self.config.get('IMMUDB_USER', 'immudb')
-            password = self.config.get('IMMUDB_PASS', 'immudb')
-            
-            logger.info(f"Connecting to ImmuDB at {host}...")
-            self.client = ImmudbClient(host)
-            self.client.login(user, password)
-            self._init_schema()
-            return True
-        except Exception as e:
-            logger.error(f"Failed to connect to ImmuDB: {e}")
-            self.client = None
-            return False
+        thread_id = threading.get_ident()
+        logger.info(f"[Thread {thread_id}] _connect called. failed_client={id(failed_client) if failed_client else 'None'}, current_client={id(self.client) if self.client else 'None'}")
+        
+        with self._reconnect_lock:
+            # Check if another thread has already reconnected while this thread was waiting for the lock.
+            if self.client is not None and (failed_client is None or self.client is not failed_client):
+                logger.info(f"[Thread {thread_id}] Another thread already reconnected ImmuDB. Skipping reconnect.")
+                return True
+                
+            try:
+                if self.client:
+                    logger.info(f"[Thread {thread_id}] Shutting down old client...")
+                    try:
+                        self.shutdown()
+                    except Exception as shutdown_err:
+                        logger.warning(f"[Thread {thread_id}] Error during shutdown: {shutdown_err}")
+                
+                host = self.config.get('IMMUDB_HOST', 'localhost:3322')
+                user = self.config.get('IMMUDB_USER', 'immudb')
+                password = self.config.get('IMMUDB_PASS', 'immudb')
+                
+                logger.info(f"[Thread {thread_id}] Connecting to ImmuDB at {host}...")
+                new_client = ImmudbClient(host)
+                new_client.login(user, password)
+                
+                self.client = new_client
+                self._init_schema()
+                logger.info(f"[Thread {thread_id}] ImmuDB connection and login successful.")
+                return True
+            except Exception as e:
+                logger.error(f"[Thread {thread_id}] Failed to connect to ImmuDB: {e}", exc_info=True)
+                self.client = None
+                return False
 
     def _get_client(self):
         """Get an active ImmuDB client, reconnecting if necessary."""
         if not self.enabled:
             return None
-            
+
         if self.client is None:
             self._connect()
-            
+
         return self.client
 
     def _parse_bool(self, value: Any) -> bool:
@@ -259,8 +274,14 @@ class ImmudbService:
             try:
                 results = client.sqlQuery(query)
             except Exception as e:
-                if "RPC" in str(e) or "Channel" in str(e):
-                    if self._connect():
+                err_str = str(e)
+                _retryable = ("RPC" in err_str or "Channel" in err_str or
+                              "not logged in" in err_str or
+                              "please select a database" in err_str or
+                              "StatusCode.CANCELLED" in err_str)
+                if _retryable:
+                    logger.warning("ImmuDB connection lost during lookup, retrying connection...")
+                    if self._connect(failed_client=client):
                         results = self.client.sqlQuery(query)
                     else:
                         return None
@@ -449,10 +470,14 @@ class ImmudbService:
                     """
                     client.sqlExec(sql_fallback)
             except Exception as e:
-                # If RPC or channel closed, try to reconnect ONCE
-                if "RPC" in str(e) or "Channel" in str(e):
-                    logger.warning("ImmuDB channel closed, retrying connection...")
-                    if self._connect():
+                err_str = str(e)
+                _retryable = ("RPC" in err_str or "Channel" in err_str or
+                              "not logged in" in err_str or
+                              "please select a database" in err_str or
+                              "StatusCode.CANCELLED" in err_str)
+                if _retryable:
+                    logger.warning("ImmuDB connection lost, retrying connection...")
+                    if self._connect(failed_client=client):
                         self.client.sqlExec(sql, params)
                         logger.info("Retry successful after reconnection")
                         return True
@@ -532,9 +557,14 @@ class ImmudbService:
             try:
                 results = client.sqlQuery(query)
             except Exception as e:
-                if "RPC" in str(e) or "Channel" in str(e):
-                    logger.warning("ImmuDB channel closed during query, retrying...")
-                    if self._connect():
+                err_str = str(e)
+                _retryable = ("RPC" in err_str or "Channel" in err_str or
+                              "not logged in" in err_str or
+                              "please select a database" in err_str or
+                              "StatusCode.CANCELLED" in err_str)
+                if _retryable:
+                    logger.warning("ImmuDB connection lost during query, retrying connection...")
+                    if self._connect(failed_client=client):
                         results = self.client.sqlQuery(query)
                         return list(results)
                 raise e
