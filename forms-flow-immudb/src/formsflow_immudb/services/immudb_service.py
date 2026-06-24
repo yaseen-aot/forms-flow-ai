@@ -2,7 +2,9 @@
 
 import json
 import logging
+import os
 import threading
+import time
 from datetime import datetime, timezone
 from typing import Optional, Dict, List, Any
 
@@ -66,13 +68,39 @@ class ImmudbService:
             self.enabled = False
             return
         
+        # Stagger startup using hostname hash + PID to prevent simultaneous login bursts from multiple pods/replicas
+        import socket
+        import hashlib
         try:
-            self._connect()
-            logger.info("ImmuDB service initialized successfully")
-        except Exception as e:
-            logger.error(f"Initial ImmuDB connection failed: {e}")
-            # We don't disable here completely, will retry on use
-            pass
+            hostname = socket.gethostname()
+            host_hash = int(hashlib.md5(hostname.encode()).hexdigest(), 16)
+            # Stagger delays between 0.0s and 4.5s with 0.5s intervals
+            startup_delay = ((host_hash + os.getpid()) % 10) * 0.5
+        except Exception:
+            startup_delay = (os.getpid() % 4) * 1.0
+
+        if startup_delay:
+            logger.info(f"Startup stagger delay: {startup_delay}s (pid={os.getpid()})")
+            time.sleep(startup_delay)
+
+        # Retry startup connection with backoff — UNAUTHENTICATED can occur when
+        # multiple pods/workers hit ImmuDB simultaneously on startup.
+        max_retries = 5
+        for attempt in range(1, max_retries + 1):
+            try:
+                if self._connect():
+                    logger.info("ImmuDB service initialized successfully")
+                    return
+                else:
+                    logger.error("Initial ImmuDB connection failed (check database status/credentials)")
+            except Exception as e:
+                logger.error(f"Initial ImmuDB connection failed with exception: {e}")
+            
+            wait = attempt * 2
+            logger.warning(f"ImmuDB startup connect attempt {attempt}/{max_retries} failed — retrying in {wait}s")
+            time.sleep(wait)
+
+        logger.error("ImmuDB startup connect failed after all retries — will retry on first use")
 
     def _connect(self, failed_client=None):
         """Establish or refresh the ImmuDB connection."""
@@ -98,7 +126,17 @@ class ImmudbService:
                 password = self.config.get('IMMUDB_PASS', 'immudb')
                 
                 logger.info(f"[Thread {thread_id}] Connecting to ImmuDB at {host}...")
-                new_client = ImmudbClient(host)
+                # Keepalive: ping every 5min so LB/proxy doesn't silently drop idle connections.
+                # UNAVAILABLE "Stream removed" errors happen when a proxy closes a connection
+                # after ~35min idle — these options detect the dead connection proactively.
+                import grpc
+                keepalive_options = [
+                    ('grpc.keepalive_time_ms', 5 * 60 * 1000),       # ping every 5 min
+                    ('grpc.keepalive_timeout_ms', 10 * 1000),          # wait 10s for ping ack
+                    ('grpc.keepalive_permit_without_calls', 1),         # ping even when idle
+                    ('grpc.http2.max_pings_without_data', 0),           # no limit on pings
+                ]
+                new_client = ImmudbClient(host, channelConfig=keepalive_options)
                 new_client.login(user, password)
                 
                 self.client = new_client
@@ -278,7 +316,10 @@ class ImmudbService:
                 _retryable = ("RPC" in err_str or "Channel" in err_str or
                               "not logged in" in err_str or
                               "please select a database" in err_str or
-                              "StatusCode.CANCELLED" in err_str)
+                              "StatusCode.CANCELLED" in err_str or
+                              "Stream removed" in err_str or
+                              "Socket closed" in err_str or
+                              "UNAVAILABLE" in err_str)
                 if _retryable:
                     logger.warning("ImmuDB connection lost during lookup, retrying connection...")
                     if self._connect(failed_client=client):
@@ -474,7 +515,10 @@ class ImmudbService:
                 _retryable = ("RPC" in err_str or "Channel" in err_str or
                               "not logged in" in err_str or
                               "please select a database" in err_str or
-                              "StatusCode.CANCELLED" in err_str)
+                              "StatusCode.CANCELLED" in err_str or
+                              "Stream removed" in err_str or
+                              "Socket closed" in err_str or
+                              "UNAVAILABLE" in err_str)
                 if _retryable:
                     logger.warning("ImmuDB connection lost, retrying connection...")
                     if self._connect(failed_client=client):
@@ -561,7 +605,10 @@ class ImmudbService:
                 _retryable = ("RPC" in err_str or "Channel" in err_str or
                               "not logged in" in err_str or
                               "please select a database" in err_str or
-                              "StatusCode.CANCELLED" in err_str)
+                              "StatusCode.CANCELLED" in err_str or
+                              "Stream removed" in err_str or
+                              "Socket closed" in err_str or
+                              "UNAVAILABLE" in err_str)
                 if _retryable:
                     logger.warning("ImmuDB connection lost during query, retrying connection...")
                     if self._connect(failed_client=client):
