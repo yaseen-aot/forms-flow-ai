@@ -55,6 +55,7 @@ class ImmudbService:
         self.config = config
         self.client = None
         self._reconnect_lock = threading.RLock()
+        self._heartbeat_thread = None
         
         if not self.enabled:
             logger.info("ImmuDB service disabled via configuration")
@@ -68,39 +69,34 @@ class ImmudbService:
             self.enabled = False
             return
         
-        # Stagger startup using hostname hash + PID to prevent simultaneous login bursts from multiple pods/replicas
-        import socket
-        import hashlib
-        try:
-            hostname = socket.gethostname()
-            host_hash = int(hashlib.md5(hostname.encode()).hexdigest(), 16)
-            # Stagger delays between 0.0s and 4.5s with 0.5s intervals
-            startup_delay = ((host_hash + os.getpid()) % 10) * 0.5
-        except Exception:
-            startup_delay = (os.getpid() % 4) * 1.0
-
-        if startup_delay:
-            logger.info(f"Startup stagger delay: {startup_delay}s (pid={os.getpid()})")
-            time.sleep(startup_delay)
-
-        # Retry startup connection with backoff — UNAUTHENTICATED can occur when
-        # multiple pods/workers hit ImmuDB simultaneously on startup.
-        max_retries = 5
-        for attempt in range(1, max_retries + 1):
+        # Connect in a background thread so gunicorn workers are never blocked during startup.
+        # Stagger + retry happens off the request path — no worker timeouts.
+        def _startup_connect():
+            import socket, hashlib
             try:
+                hostname = socket.gethostname()
+                host_hash = int(hashlib.md5(hostname.encode()).hexdigest(), 16)
+                startup_delay = ((host_hash + os.getpid()) % 10) * 0.5
+            except Exception:
+                startup_delay = (os.getpid() % 4) * 1.0
+
+            if startup_delay:
+                logger.info(f"Startup stagger delay: {startup_delay}s (pid={os.getpid()})")
+                time.sleep(startup_delay)
+
+            max_retries = 5
+            for attempt in range(1, max_retries + 1):
                 if self._connect():
                     logger.info("ImmuDB service initialized successfully")
                     return
-                else:
-                    logger.error("Initial ImmuDB connection failed (check database status/credentials)")
-            except Exception as e:
-                logger.error(f"Initial ImmuDB connection failed with exception: {e}")
-            
-            wait = attempt * 2
-            logger.warning(f"ImmuDB startup connect attempt {attempt}/{max_retries} failed — retrying in {wait}s")
-            time.sleep(wait)
+                wait = attempt * 2
+                logger.warning(f"ImmuDB startup attempt {attempt}/{max_retries} failed — retrying in {wait}s")
+                time.sleep(wait)
 
-        logger.error("ImmuDB startup connect failed after all retries — will retry on first use")
+            logger.error("ImmuDB startup connect failed after all retries — will retry on first use")
+
+        t = threading.Thread(target=_startup_connect, daemon=True, name="immudb-startup")
+        t.start()
 
     def _connect(self, failed_client=None):
         """Establish or refresh the ImmuDB connection."""
@@ -136,12 +132,13 @@ class ImmudbService:
                     ('grpc.keepalive_permit_without_calls', 1),         # ping even when idle
                     ('grpc.http2.max_pings_without_data', 0),           # no limit on pings
                 ]
-                new_client = ImmudbClient(host, channelConfig=keepalive_options)
+                new_client = ImmudbClient(host)
                 new_client.login(user, password)
                 
                 self.client = new_client
                 self._init_schema()
                 logger.info(f"[Thread {thread_id}] ImmuDB connection and login successful.")
+                self._start_heartbeat()
                 return True
             except Exception as e:
                 logger.error(f"[Thread {thread_id}] Failed to connect to ImmuDB: {e}", exc_info=True)
@@ -157,6 +154,48 @@ class ImmudbService:
             self._connect()
 
         return self.client
+
+    def _start_heartbeat(self):
+        """Start a background thread that pings ImmuDB periodically to prevent idle connection termination."""
+        if not self.enabled:
+            return
+
+        with self._reconnect_lock:
+            if hasattr(self, '_heartbeat_thread') and self._heartbeat_thread and self._heartbeat_thread.is_alive():
+                return
+
+            self._stop_heartbeat_event = threading.Event()
+            
+            def heartbeat():
+                logger.info("ImmuDB background heartbeat thread started (ping every 30s)")
+                while hasattr(self, '_stop_heartbeat_event') and self._stop_heartbeat_event and not self._stop_heartbeat_event.is_set():
+                    # Sleep for 30s, check if stopped
+                    if self._stop_heartbeat_event.wait(timeout=30):
+                        break
+                    
+                    if not self.enabled or self.client is None:
+                        continue
+                    
+                    try:
+                        # Lightweight query to keep TCP connection active and refresh idle session
+                        self.client.sqlQuery("SELECT 1;")
+                        logger.debug("ImmuDB heartbeat: ping successful")
+                    except Exception as e:
+                        logger.warning(f"ImmuDB heartbeat ping failed: {e}")
+                        # Null out the client so _get_client() triggers a fresh reconnect
+                        # on the next real request. Use _connect() directly to re-establish
+                        # now so the session is ready before the next request arrives.
+                        try:
+                            self._connect(failed_client=self.client)
+                            logger.info("ImmuDB heartbeat: reconnected successfully after ping failure")
+                        except Exception as reconnect_err:
+                            logger.warning(f"ImmuDB heartbeat: reconnect also failed: {reconnect_err}")
+                            self.client = None
+
+            self._heartbeat_thread = threading.Thread(
+                target=heartbeat, daemon=True, name="immudb-heartbeat"
+            )
+            self._heartbeat_thread.start()
 
     def _parse_bool(self, value: Any) -> bool:
         """Parse boolean value from various types."""
@@ -202,6 +241,12 @@ class ImmudbService:
 
     def shutdown(self):
         """Shutdown the ImmuDB client connection."""
+        if hasattr(self, '_stop_heartbeat_event') and self._stop_heartbeat_event:
+            try:
+                self._stop_heartbeat_event.set()
+            except Exception:
+                pass
+        
         if hasattr(self, 'client') and self.client is not None:
             try:
                 # Some versions might require close() or shutdown()

@@ -1566,7 +1566,32 @@ def index():
         query += " ORDER BY created_at DESC"
 
         try:
-            results = immudb_service.client.sqlQuery(query)
+            import random
+            import time
+            results = None
+            MAX_ATTEMPTS = 3
+            for attempt in range(1, MAX_ATTEMPTS + 1):
+                try:
+                    client = immudb_service._get_client()
+                    if not client:
+                        raise Exception("ImmuDB client is not available")
+                    results = client.sqlQuery(query)
+                    break
+                except Exception as e:
+                    err_str = str(e)
+                    _retryable = ("RPC" in err_str or "Channel" in err_str or
+                                  "not logged in" in err_str or
+                                  "please select a database" in err_str or
+                                  "StatusCode.CANCELLED" in err_str or
+                                  "Stream removed" in err_str or
+                                  "Socket closed" in err_str or
+                                  "UNAVAILABLE" in err_str)
+                    if _retryable and attempt < MAX_ATTEMPTS:
+                        jitter = 0.1 + random.uniform(0, 0.2)
+                        time.sleep(jitter)
+                        immudb_service._connect(failed_client=client)
+                        continue
+                    raise e
             
             # Filter results in Python for case-insensitive matching
             filtered_results = []
@@ -1718,7 +1743,32 @@ def api_search():
         query += " ORDER BY created_at DESC"
 
         try:
-            results = immudb_service.client.sqlQuery(query)
+            import random
+            import time
+            results = None
+            MAX_ATTEMPTS = 3
+            for attempt in range(1, MAX_ATTEMPTS + 1):
+                try:
+                    client = immudb_service._get_client()
+                    if not client:
+                        raise Exception("ImmuDB client is not available")
+                    results = client.sqlQuery(query)
+                    break
+                except Exception as e:
+                    err_str = str(e)
+                    _retryable = ("RPC" in err_str or "Channel" in err_str or
+                                  "not logged in" in err_str or
+                                  "please select a database" in err_str or
+                                  "StatusCode.CANCELLED" in err_str or
+                                  "Stream removed" in err_str or
+                                  "Socket closed" in err_str or
+                                  "UNAVAILABLE" in err_str)
+                    if _retryable and attempt < MAX_ATTEMPTS:
+                        jitter = 0.1 + random.uniform(0, 0.2)
+                        time.sleep(jitter)
+                        immudb_service._connect(failed_client=client)
+                        continue
+                    raise e
             
             # Filter results in Python for case-insensitive matching
             filtered_results = []
