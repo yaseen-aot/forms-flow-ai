@@ -311,3 +311,111 @@ class EpicService:
         except Exception as e:
             logger.error(f"Unexpected error fetching binary: {str(e)}")
             raise
+
+    async def get_patient(self, patient_id: str):
+        """
+        Fetch a single Patient from Epic.
+        """
+        token_data = await self.get_access_token()
+        token = token_data["access_token"]
+        
+        url = f"/Patient/{patient_id}"
+        logger.info(f"Fetching Patient {patient_id}...")
+        
+        try:
+            response = await self.client.get(
+                url,
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "Accept": "application/fhir+json",
+                },
+            )
+            response.raise_for_status()
+            return response.json()
+        except httpx.HTTPStatusError as e:
+            logger.error(f"HTTP Error fetching patient: {e.response.status_code} - {e.response.text}")
+            raise
+        except Exception as e:
+            logger.error(f"Unexpected error fetching patient: {str(e)}")
+            raise
+
+    async def get_encounter(self, encounter_id: str):
+        """
+        Fetch a single Encounter from Epic.
+        """
+        token_data = await self.get_access_token()
+        token = token_data["access_token"]
+        
+        url = f"/Encounter/{encounter_id}"
+        logger.info(f"Fetching Encounter {encounter_id}...")
+        
+        try:
+            response = await self.client.get(
+                url,
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "Accept": "application/fhir+json",
+                },
+            )
+            response.raise_for_status()
+            return response.json()
+        except httpx.HTTPStatusError as e:
+            logger.error(f"HTTP Error fetching encounter: {e.response.status_code} - {e.response.text}")
+            raise
+        except Exception as e:
+            logger.error(f"Unexpected error fetching encounter: {str(e)}")
+            raise
+
+    async def get_documentref(self, docref_id: str):
+        """
+        Fetch a single DocumentReference from Epic.
+        """
+        token_data = await self.get_access_token()
+        token = token_data["access_token"]
+        
+        url = f"/DocumentReference/{docref_id}"
+        logger.info(f"Fetching DocumentReference {docref_id}...")
+        
+        try:
+            response = await self.client.get(
+                url,
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "Accept": "application/fhir+json",
+                },
+            )
+            response.raise_for_status()
+            return response.json()
+        except httpx.HTTPStatusError as e:
+            logger.error(f"HTTP Error fetching document reference: {e.response.status_code} - {e.response.text}")
+            raise
+        except Exception as e:
+            logger.error(f"Unexpected error fetching document reference: {str(e)}")
+            raise
+
+    async def search_encounters(self, patient_id: str):
+        """
+        Search for Encounter resources for a patient.
+        """
+        token_data = await self.get_access_token()
+        token = token_data["access_token"]
+        
+        url = f"/Encounter?patient={patient_id}"
+        logger.info(f"Searching Encounters for patient {patient_id}...")
+        
+        try:
+            response = await self.client.get(
+                url,
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "Accept": "application/fhir+json",
+                },
+            )
+            response.raise_for_status()
+            return response.json()
+        except httpx.HTTPStatusError as e:
+            logger.error(f"HTTP Error searching encounters: {e.response.status_code} - {e.response.text}")
+            raise
+        except Exception as e:
+            logger.error(f"Unexpected error searching encounters: {str(e)}")
+            raise
