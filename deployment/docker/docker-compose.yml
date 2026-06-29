@@ -414,6 +414,19 @@ services:
     networks:
       - forms-flow-network
 
+  ehr-connectors:
+    container_name: ehr-connectors
+    build:
+      context: ./../../ehr_connectors/
+      dockerfile: Dockerfile
+    restart: always
+    ports:
+      - '8002:8002'
+    env_file:
+      - ./../../ehr_connectors/.env
+    networks:
+      - forms-flow-network
+
   forms-flow-custom-services:
     container_name: forms-flow-custom-services
     build:
