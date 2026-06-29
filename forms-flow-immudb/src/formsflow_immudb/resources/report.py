@@ -2,11 +2,186 @@
 
 import json
 import re
+import os
 from flask import Blueprint, render_template_string, request, jsonify
 from ..services.immudb_service import ImmudbService
 import html
 
 REPORT = Blueprint("report", __name__)
+
+EHR_CONNECTOR_URL = os.getenv("EHR_CONNECTOR_URL", "http://localhost:8002").rstrip("/")
+
+def find_key_value(data, target_keys):
+    """Recursively search for values of target_keys in a dictionary or list."""
+    if isinstance(data, dict):
+        for key in target_keys:
+            if key in data and data[key]:
+                val = data[key]
+                if isinstance(val, (str, int)):
+                    return str(val)
+                elif isinstance(val, dict) and "value" in val and isinstance(val["value"], (str, int)):
+                    return str(val["value"])
+        for value in data.values():
+            found = find_key_value(value, target_keys)
+            if found:
+                return found
+    elif isinstance(data, list):
+        for item in data:
+            found = find_key_value(item, target_keys)
+            if found:
+                return found
+    return None
+
+def extract_patient_id(data):
+    val = find_key_value(data, ["patientId", "patient_id", "patientIdInput"])
+    if val:
+        return val
+    if isinstance(data, dict):
+        patient_ref = None
+        subject = data.get("subject")
+        if isinstance(subject, dict):
+            patient_ref = subject.get("reference")
+        elif not patient_ref:
+            patient_ref = data.get("patient")
+        
+        if isinstance(patient_ref, str):
+            if patient_ref.startswith("Patient/"):
+                return patient_ref.split("/")[-1]
+            return patient_ref
+            
+        for v in data.values():
+            found = extract_patient_id(v)
+            if found:
+                return found
+    elif isinstance(data, list):
+        for item in data:
+            found = extract_patient_id(item)
+            if found:
+                return found
+    return None
+
+def extract_docref_id(data):
+    val = find_key_value(data, ["documentrefId", "docrefId", "documentref_id", "docref_id", "docrefIdInput"])
+    if val:
+        return val
+    if isinstance(data, dict):
+        if data.get("resourceType") == "DocumentReference" and isinstance(data.get("id"), str):
+            return data["id"]
+        for v in data.values():
+            found = extract_docref_id(v)
+            if found:
+                return found
+    elif isinstance(data, list):
+        for item in data:
+            found = extract_docref_id(item)
+            if found:
+                return found
+    return None
+
+def extract_encounter_id(data):
+    val = find_key_value(data, ["encounterId", "encounter_id", "encounterIdInput"])
+    if val:
+        return val
+    if isinstance(data, dict):
+        if data.get("resourceType") == "Encounter" and isinstance(data.get("id"), str):
+            return data["id"]
+        for v in data.values():
+            found = extract_encounter_id(v)
+            if found:
+                return found
+    elif isinstance(data, list):
+        for item in data:
+            found = extract_encounter_id(item)
+            if found:
+                return found
+    return None
+
+def generate_ehr_links_html(req_str, res_str):
+    """Parse request and response payloads, extract IDs, and return HTML links."""
+    req_data = {}
+    res_data = {}
+    
+    if req_str:
+        try:
+            req_data = json.loads(req_str)
+        except Exception:
+            pass
+            
+    if res_str:
+        try:
+            res_data = json.loads(res_str)
+        except Exception:
+            pass
+            
+    # Try to extract via explicitly provided _viewer_links first
+    patient_id = None
+    docref_id = None
+    encounter_id = None
+    
+    def get_links_from_dict(d):
+        if not isinstance(d, dict):
+            return None
+        if "_viewer_links" in d:
+            return d["_viewer_links"]
+        for v in d.values():
+            if isinstance(v, dict):
+                found = get_links_from_dict(v)
+                if found:
+                    return found
+        return None
+        
+    vl = get_links_from_dict(req_data) or get_links_from_dict(res_data)
+    if isinstance(vl, dict):
+        pat_path = vl.get("patient_details")
+        if pat_path and pat_path.startswith("/patient/"):
+            patient_id = pat_path.split("/")[-1]
+            
+        doc_path = vl.get("documentref_details")
+        if doc_path and doc_path.startswith("/documentref/"):
+            docref_id = doc_path.split("/")[-1]
+            
+        enc_path = vl.get("encounter_details")
+        if enc_path and enc_path.startswith("/encounter/"):
+            encounter_id = enc_path.split("/")[-1]
+
+    # Fallback to key-based extraction if not found in _viewer_links
+    if not patient_id:
+        patient_id = extract_patient_id(req_data) or extract_patient_id(res_data)
+    if not docref_id:
+        docref_id = extract_docref_id(req_data) or extract_docref_id(res_data)
+    if not encounter_id:
+        encounter_id = extract_encounter_id(req_data) or extract_encounter_id(res_data)
+    
+    links = []
+    
+    if patient_id:
+        links.append(
+            f'<div style="font-weight:600; color:#58a6ff; margin-bottom:4px; font-size:12px; display:flex; align-items:center; gap:4px;"><i class="fas fa-id-card"></i> ID: {patient_id}</div>'
+        )
+        links.append(
+            f'<a href="{EHR_CONNECTOR_URL}/patient/{patient_id}" target="_blank" class="btn-ehr" style="display:inline-flex; align-items:center; gap:6px; background:#58a6ff; color:#0d1117; padding:4px 8px; border-radius:4px; font-size:11px; font-weight:600; text-decoration:none; margin:2px;"><i class="fas fa-user-injured"></i> View Patient</a>'
+        )
+        links.append(
+            f'<a href="{EHR_CONNECTOR_URL}/documentref/patient/{patient_id}" target="_blank" class="btn-ehr" style="display:inline-flex; align-items:center; gap:6px; background:#3fb950; color:#0d1117; padding:4px 8px; border-radius:4px; font-size:11px; font-weight:600; text-decoration:none; margin:2px;"><i class="fas fa-file-medical"></i> Patient Docs</a>'
+        )
+        links.append(
+            f'<a href="{EHR_CONNECTOR_URL}/encounter/patient/{patient_id}" target="_blank" class="btn-ehr" style="display:inline-flex; align-items:center; gap:6px; background:#a371f7; color:#0d1117; padding:4px 8px; border-radius:4px; font-size:11px; font-weight:600; text-decoration:none; margin:2px;"><i class="fas fa-hospital-user"></i> Patient Encounters</a>'
+        )
+        
+    if docref_id:
+        links.append(
+            f'<a href="{EHR_CONNECTOR_URL}/documentref/{docref_id}" target="_blank" class="btn-ehr" style="display:inline-flex; align-items:center; gap:6px; background:#34d058; color:#0d1117; padding:4px 8px; border-radius:4px; font-size:11px; font-weight:600; text-decoration:none; margin:2px;"><i class="fas fa-file-alt"></i> View Consent</a>'
+        )
+        
+    if encounter_id:
+        links.append(
+            f'<a href="{EHR_CONNECTOR_URL}/encounter/{encounter_id}" target="_blank" class="btn-ehr" style="display:inline-flex; align-items:center; gap:6px; background:#f97316; color:#0d1117; padding:4px 8px; border-radius:4px; font-size:11px; font-weight:600; text-decoration:none; margin:2px;"><i class="fas fa-notes-medical"></i> View Encounter</a>'
+        )
+        
+    if not links:
+        return '<span style="color:#6e7781; font-style:italic; font-size:11px;">No EHR Data</span>'
+        
+    return '<div style="display:flex; flex-direction:column; gap:4px; max-width:200px;">' + "".join(links) + '</div>'
 
 # HTML template for server-side rendered report page
 REPORT_TEMPLATE = """
@@ -295,6 +470,16 @@ REPORT_TEMPLATE = """
             border-radius: 50%;
             border-top: 4px solid #667eea;
             animation: spin 1s linear infinite;
+        }
+
+        .btn-ehr {
+            transition: all 0.2s ease-in-out;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.15);
+        }
+        .btn-ehr:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 3px 6px rgba(0,0,0,0.25);
+            filter: brightness(0.9);
         }
 
         .results-header {
@@ -911,6 +1096,7 @@ REPORT_TEMPLATE = """
                             <th><i class="fas fa-user"></i> User ID</th>
                             <th><i class="fas fa-upload"></i> Request Data</th>
                             <th><i class="fas fa-download"></i> Response Data</th>
+                            <th><i class="fas fa-link"></i> EHR Actions</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -941,6 +1127,9 @@ REPORT_TEMPLATE = """
                                         <i class="fas fa-expand"></i> See More
                                     </button>
                                     {% endif %}
+                                </td>
+                                <td>
+                                    {{ row[7] | safe if row[7] else '' }}
                                 </td>
                             </tr>
                             {% endfor %}
@@ -1142,6 +1331,7 @@ REPORT_TEMPLATE = """
                     <td>${row.user_id || ''}</td>
                     <td>${createJsonCell(row.request_data, 'request')}</td>
                     <td>${createJsonCell(row.response_data, 'response')}</td>
+                    <td>${row.ehr_links_html || ''}</td>
                 `;
                 tbody.appendChild(tr);
             });
@@ -1653,6 +1843,9 @@ def index():
         formatted_results = []
         for row in paginated_results:
             row_list = list(row)
+            # Extract IDs and generate EHR links html from raw row[4] and row[5]
+            ehr_links_html = generate_ehr_links_html(row_list[4], row_list[5])
+            
             # Apply highlighting to request_data and response_data
             if search_params.get('search_text'):
                 row_list[4] = highlight_search_term(row_list[4], search_params['search_text'])
@@ -1661,6 +1854,8 @@ def index():
                 # Escape HTML even when not highlighting
                 row_list[4] = html.escape(str(row_list[4]))
                 row_list[5] = html.escape(str(row_list[5]))
+                
+            row_list.append(ehr_links_html)
             formatted_results.append(row_list)
 
         start_item = start_idx + 1 if total_count > 0 else 0
@@ -1825,6 +2020,9 @@ def api_search():
             # Store raw data before any modification for the JSON modal usage
             raw_request = str(row_list[4]) if row_list[4] else ""
             raw_response = str(row_list[5]) if row_list[5] else ""
+            
+            # Generate EHR links
+            ehr_links_html = generate_ehr_links_html(raw_request, raw_response)
 
             # Apply highlighting or escaping for the HTML table display
             if search_params.get('search_text'):
@@ -1843,7 +2041,8 @@ def api_search():
                 'response_data': display_response,
                 'raw_request_data': raw_request, # Send raw data for JS modal access
                 'raw_response_data': raw_response,
-                'created_at': row_list[6]
+                'created_at': row_list[6],
+                'ehr_links_html': ehr_links_html
             })
 
         return jsonify({

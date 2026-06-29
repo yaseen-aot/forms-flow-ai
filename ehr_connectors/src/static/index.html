@@ -786,35 +786,64 @@
         }
 
         function navigateToTab(tabName) {
+            // Find currently active tab
+            let currentActiveTab = '';
+            if (document.getElementById('tab-patient').classList.contains('active')) {
+                currentActiveTab = 'patient';
+            } else if (document.getElementById('tab-documentref').classList.contains('active')) {
+                currentActiveTab = 'documentref';
+            } else if (document.getElementById('tab-encounter').classList.contains('active')) {
+                currentActiveTab = 'encounter';
+            }
+
+            // Extract Patient ID from current active tab if the active tab is performing a patient-based search
+            let carriedPatientId = '';
+            if (currentActiveTab === 'patient') {
+                carriedPatientId = document.getElementById('patientIdInput').value.trim();
+            } else if (currentActiveTab === 'documentref') {
+                const searchType = document.getElementById('docrefSearchType').value;
+                if (searchType === 'patient') {
+                    carriedPatientId = document.getElementById('docrefIdInput').value.trim();
+                }
+            } else if (currentActiveTab === 'encounter') {
+                const searchType = document.getElementById('encounterSearchType').value;
+                if (searchType === 'patient') {
+                    carriedPatientId = document.getElementById('encounterIdInput').value.trim();
+                }
+            }
+
             switchTab(tabName);
             
-            // Carry over active patient ID to documentref or encounter tabs if present
-            const activePatientId = document.getElementById('patientIdInput').value.trim();
-            if (activePatientId) {
-                if (tabName === 'documentref') {
+            // Carry over active patient ID context to the newly selected tab
+            if (carriedPatientId) {
+                if (tabName === 'patient') {
+                    document.getElementById('patientIdInput').value = carriedPatientId;
+                    searchPatient();
+                } else if (tabName === 'documentref') {
                     document.getElementById('docrefSearchType').value = 'patient';
                     updateSearchPlaceholder('documentref');
-                    document.getElementById('docrefIdInput').value = activePatientId;
+                    document.getElementById('docrefIdInput').value = carriedPatientId;
                     searchDocRef();
                 } else if (tabName === 'encounter') {
                     document.getElementById('encounterSearchType').value = 'patient';
                     updateSearchPlaceholder('encounter');
-                    document.getElementById('encounterIdInput').value = activePatientId;
+                    document.getElementById('encounterIdInput').value = carriedPatientId;
                     searchEncounter();
                 }
-            }
-
-            const currentId = getLoadedIdForTab(tabName);
-            let newPath = `/${tabName}`;
-            if (currentId) {
-                if (tabName === 'patient') {
-                    newPath = `/patient/${currentId}`;
-                } else {
-                    const searchType = document.getElementById(`${tabName}SearchType`).value;
-                    newPath = searchType === 'patient' ? `/${tabName}/patient/${currentId}` : `/${tabName}/${currentId}`;
+            } else {
+                // If no Patient ID is carried over, retain the tab's current status and update URL
+                const currentId = getLoadedIdForTab(tabName);
+                let newPath = `/${tabName}`;
+                if (currentId) {
+                    if (tabName === 'patient') {
+                        newPath = `/patient/${currentId}`;
+                    } else {
+                        const searchType = document.getElementById(`${tabName}SearchType`).value;
+                        newPath = searchType === 'patient' ? `/${tabName}/patient/${currentId}` : `/${tabName}/${currentId}`;
+                    }
                 }
+                window.history.pushState(null, '', newPath);
             }
-            window.history.pushState(null, '', newPath);
         }
 
         function navigateToPath(tabName, id, isPatientSearch) {
