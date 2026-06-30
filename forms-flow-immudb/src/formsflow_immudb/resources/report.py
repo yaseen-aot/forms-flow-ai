@@ -1975,8 +1975,6 @@ def index():
         if search_params['date_to']:
             query += f" AND created_at <= '{search_params['date_to']}'"
 
-        query += " ORDER BY created_at DESC"
-
         try:
             import random
             import time
@@ -1988,6 +1986,8 @@ def index():
                     if not client:
                         raise Exception("ImmuDB client is not available")
                     results = client.sqlQuery(query)
+                    if results:
+                        results.sort(key=lambda x: x[6] if x[6] is not None else "", reverse=True)
                     break
                 except Exception as e:
                     err_str = str(e)
@@ -1997,7 +1997,10 @@ def index():
                                   "StatusCode.CANCELLED" in err_str or
                                   "Stream removed" in err_str or
                                   "Socket closed" in err_str or
-                                  "UNAVAILABLE" in err_str)
+                                  "UNAVAILABLE" in err_str or
+                                  "invalid token" in err_str or
+                                  "invalid session" in err_str or
+                                  "INTERNAL" in err_str)
                     if _retryable and attempt < MAX_ATTEMPTS:
                         jitter = 0.1 + random.uniform(0, 0.2)
                         time.sleep(jitter)
@@ -2157,8 +2160,6 @@ def api_search():
         if search_params['date_to']:
             query += f" AND created_at <= '{search_params['date_to']}'"
 
-        query += " ORDER BY created_at DESC"
-
         try:
             import random
             import time
@@ -2170,6 +2171,8 @@ def api_search():
                     if not client:
                         raise Exception("ImmuDB client is not available")
                     results = client.sqlQuery(query)
+                    if results:
+                        results.sort(key=lambda x: x[6] if x[6] is not None else "", reverse=True)
                     break
                 except Exception as e:
                     err_str = str(e)
@@ -2179,7 +2182,10 @@ def api_search():
                                   "StatusCode.CANCELLED" in err_str or
                                   "Stream removed" in err_str or
                                   "Socket closed" in err_str or
-                                  "UNAVAILABLE" in err_str)
+                                  "UNAVAILABLE" in err_str or
+                                  "invalid token" in err_str or
+                                  "invalid session" in err_str or
+                                  "INTERNAL" in err_str)
                     if _retryable and attempt < MAX_ATTEMPTS:
                         jitter = 0.1 + random.uniform(0, 0.2)
                         time.sleep(jitter)

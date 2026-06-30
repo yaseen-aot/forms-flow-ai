@@ -137,7 +137,7 @@ def request_magic_link(email: str, process_instance_id: str, iss: str = None, au
         f"Request Payload: {{'email': '{email}', 'processInstanceId': '{process_instance_id}', "
         f"'iss': '{iss}', 'aud': '{aud}'}}"
     )
-    _invalidate_tokens_for_email(email)
+    # _invalidate_tokens_for_email(email)
 
     payload = {
         'sub': email,
