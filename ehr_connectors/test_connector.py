@@ -128,3 +128,41 @@ async def test_health_check():
     response = client.get("/health")
     assert response.status_code == 200
     assert response.json() == {"status": "healthy"}
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_patient_create_success():
+    settings = get_settings()
+    
+    # Mock token request
+    token_route = respx.post(settings.EPIC_TOKEN_URL).mock(return_value=httpx.Response(200, json={"access_token": "fake_token"}))
+    
+    # Mock Patient create endpoint
+    def match_patient_create(request):
+        import json
+        payload = json.loads(request.content)
+        assert payload["resourceType"] == "Patient"
+        assert payload["name"][0]["family"] == "Doe"
+        assert payload["name"][0]["given"][0] == "John"
+        assert payload["identifier"][0]["value"] == "123-45-6789"  # SSN
+        return httpx.Response(201, json={"id": "new_patient_id", "resourceType": "Patient", "identifier": [{"type": {"coding": [{"code": "MR"}]}, "value": "MRN-999"}]})
+
+    patient_route = respx.post(f"{settings.EPIC_FHIR_BASE_URL}/Patient").mock(side_effect=match_patient_create)
+    
+    response = client.post(
+        "/epic/patient-create",
+        json={
+            "fhirPatient": {
+                "resourceType": "Patient",
+                "name": [{"use": "official", "family": "Doe", "given": ["John"]}],
+                "identifier": [{"system": "http://hl7.org/fhir/sid/us-ssn", "value": "123-45-6789"}]
+            },
+            "applicationId": "app_123"
+        }
+    )
+    
+    assert response.status_code == 200
+    assert response.json()["id"] == "new_patient_id"
+    assert response.json()["identifier"][0]["value"] == "MRN-999"
+    assert token_route.called
+    assert patient_route.called

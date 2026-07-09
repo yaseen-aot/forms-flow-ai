@@ -419,3 +419,62 @@ class EpicService:
         except Exception as e:
             logger.error(f"Unexpected error searching encounters: {str(e)}")
             raise
+
+    async def create_patient(self, fhir_patient: dict):
+        """
+        Create a Patient resource in Epic.
+        """
+        token_data = await self.get_access_token()
+        token = token_data["access_token"]
+        
+        logger.info(f"Creating Patient in Epic... {fhir_patient}")
+        try:
+            response = await self.client.post(
+                "/Patient",
+                json=fhir_patient,
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "Content-Type": "application/fhir+json",
+                    "Accept": "application/fhir+json",
+                },
+            )
+            
+            if response.status_code != 201:
+                logger.error(f"Epic rejected Patient creation payload: {response.text}")
+            
+            response.raise_for_status()
+            logger.info(f"Successfully created Patient in Epic. Response: {response.json()}")
+            
+            try:
+                content_type = response.headers.get("content-type", "").lower()
+                if "json" in content_type:
+                    return response.json()
+                else:
+                    # Parse Location header to get the ID if JSON is not returned
+                    location = response.headers.get("Location", "")
+                    patient_id = ""
+                    if location:
+                        parts = location.split("/")
+                        if "_history" in parts:
+                            idx = parts.index("_history")
+                            patient_id = parts[idx - 1]
+                        else:
+                            patient_id = parts[-1]
+                    return {
+                        "status": "success",
+                        "message": "Patient created in Epic",
+                        "status_code": response.status_code,
+                        "id": patient_id,
+                    }
+            except Exception:
+                return {
+                    "status": "success",
+                    "message": "Patient created (no JSON body returned)",
+                    "status_code": response.status_code,
+                }
+        except httpx.HTTPStatusError as e:
+            logger.error(f"HTTP Error creating patient: {e.response.status_code} - {e.response.text}")
+            raise
+        except Exception as e:
+            logger.error(f"Unexpected error creating patient: {str(e)}")
+            raise

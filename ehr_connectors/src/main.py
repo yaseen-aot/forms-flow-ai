@@ -21,6 +21,12 @@ class ApprovalRequest(BaseModel):
     surrogateKey: Optional[str] = None
     approvedAt: Optional[str] = None
 
+class PatientCreateRequest(BaseModel):
+    fhirPatient: dict
+    reviewerComments: Optional[str] = None
+    notes: Optional[str] = None
+    applicationId: Optional[str] = None
+
 @app.get("/health")
 async def health_check():
     return {"status": "healthy"}
@@ -43,6 +49,22 @@ async def approve_to_epic(request: ApprovalRequest):
     except Exception as e:
         logger.error(f"Error in approve_to_epic for patient {request.patientId}: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to send status to Epic: {str(e)}")
+
+@app.post("/epic/patient-create")
+async def create_patient_endpoint(request: PatientCreateRequest):
+    """
+    Endpoint to be called by Service Task to create a patient in Epic.
+    """
+    logger.info(f"Received patient creation request for Application: {request.applicationId}")
+    try:
+        result = await epic_service.create_patient(
+            fhir_patient=request.fhirPatient
+        )
+        logger.info(f"Successfully created patient in Epic. Application: {request.applicationId}")
+        return result
+    except Exception as e:
+        logger.error(f"Error in create_patient_endpoint: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to create patient: {str(e)}")
 
 @app.get("/epic/documents")
 async def search_documents_endpoint(patientId: str):
