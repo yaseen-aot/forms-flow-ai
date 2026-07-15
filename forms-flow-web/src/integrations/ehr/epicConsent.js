@@ -112,7 +112,7 @@ async function initializeSMART() {
     const clientId =
       window._env_?.REACT_APP_EPIC_CLIENT_ID ||
       process.env.REACT_APP_EPIC_CLIENT_ID;
-    const redirectUri =
+    let redirectUri =
       window._env_?.REACT_APP_EPIC_REDIRECT_URI ||
       process.env.REACT_APP_EPIC_REDIRECT_URI;
     const defaultScope =
@@ -121,6 +121,15 @@ async function initializeSMART() {
       window._env_?.REACT_APP_EPIC_SCOPE ||
       process.env.REACT_APP_EPIC_SCOPE ||
       defaultScope;
+
+    // Fallback: If no redirect URI is configured, construct it from the current location
+    if (!redirectUri && typeof window !== "undefined") {
+      redirectUri = window.location.origin + window.location.pathname;
+      debugLog(
+        "No redirect URI configured. Calculated fallback redirectUri:",
+        redirectUri
+      );
+    }
 
     if (!clientId || !redirectUri) {
       debugError("Epic configuration missing: clientId or redirectUri not set");

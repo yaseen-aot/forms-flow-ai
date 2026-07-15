@@ -1,10 +1,11 @@
 from fastapi import FastAPI, HTTPException, Body
-from fastapi.responses import Response
+from fastapi.responses import Response, JSONResponse
+from fastapi.exceptions import RequestValidationError
 from fastapi.staticfiles import StaticFiles
 from src.services.epic_service import EpicService
 from src.config import get_settings
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, List, Union
 
 import logging
 
@@ -13,6 +14,16 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="EHR Connector API")
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request, exc):
+    body = await request.body()
+    logger.error(f"Request validation failed: {exc.errors()} | Body: {body.decode(errors='ignore')}")
+    return JSONResponse(
+        status_code=422,
+        content={"detail": exc.errors(), "body": body.decode(errors='ignore')}
+    )
+
 epic_service = EpicService()
 
 class ApprovalRequest(BaseModel):
@@ -25,7 +36,25 @@ class PatientCreateRequest(BaseModel):
     fhirPatient: dict
     reviewerComments: Optional[str] = None
     notes: Optional[str] = None
-    applicationId: Optional[str] = None
+    applicationId: Optional[Union[str, int]] = None
+
+class DocumentReferenceRequest(BaseModel):
+    patientId: str
+    applicationId: Optional[Union[str, int]] = None
+    surrogateKey: Optional[str] = None
+    documentText: str
+    documentTitle: str
+    documentDate: Optional[str] = None
+
+class ObservationItem(BaseModel):
+    code: str
+    display: Optional[str] = None
+    value: float
+
+class ObservationRequest(BaseModel):
+    patientId: str
+    applicationId: Optional[Union[str, int]] = None
+    observations: List[ObservationItem]
 
 @app.get("/health")
 async def health_check():
@@ -65,6 +94,46 @@ async def create_patient_endpoint(request: PatientCreateRequest):
     except Exception as e:
         logger.error(f"Error in create_patient_endpoint: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to create patient: {str(e)}")
+
+@app.post("/epic/documentreference-create")
+async def create_document_reference_endpoint(request: DocumentReferenceRequest):
+    """
+    Endpoint to be called by a Service Task to write a general
+    DocumentReference to Epic (e.g. a screening summary), independent of
+    the consent-specific /epic/approve endpoint.
+    """
+    logger.info(f"Received DocumentReference creation request for patient: {request.patientId}")
+    try:
+        result = await epic_service.create_document_reference(
+            patient_id=request.patientId,
+            document_text=request.documentText,
+            document_title=request.documentTitle,
+            surrogate_key=request.surrogateKey,
+            document_date=request.documentDate,
+        )
+        logger.info(f"Successfully created DocumentReference in Epic for patient: {request.patientId}")
+        return {"ok": True, "result": result}
+    except Exception as e:
+        logger.error(f"Error in create_document_reference_endpoint for patient {request.patientId}: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to create DocumentReference: {str(e)}")
+
+@app.post("/epic/observation-create")
+async def create_observation_endpoint(request: ObservationRequest):
+    """
+    Endpoint to be called by a Service Task to write one or more
+    Observation resources to Epic (e.g. PHQ-9/GAD-7 total scores).
+    """
+    logger.info(f"Received Observation creation request for patient: {request.patientId}")
+    try:
+        result = await epic_service.create_observation(
+            patient_id=request.patientId,
+            observations=[obs.dict() for obs in request.observations],
+        )
+        logger.info(f"Successfully created {len(request.observations)} Observation(s) in Epic for patient: {request.patientId}")
+        return {"ok": True, "result": result}
+    except Exception as e:
+        logger.error(f"Error in create_observation_endpoint for patient {request.patientId}: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to create Observation: {str(e)}")
 
 @app.get("/epic/documents")
 async def search_documents_endpoint(patientId: str):
@@ -125,6 +194,18 @@ async def search_encounters_endpoint(patientId: str):
     except Exception as e:
         logger.error(f"Error in search_encounters for patient {patientId}: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to search encounters in Epic: {str(e)}")
+
+@app.get("/epic/observations")
+async def search_observations_endpoint(patientId: str):
+    """
+    Search for Observation resources (e.g. PHQ-9/GAD-7 scores) for a patient.
+    """
+    try:
+        result = await epic_service.search_observations(patient_id=patientId)
+        return result
+    except Exception as e:
+        logger.error(f"Error in search_observations for patient {patientId}: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to search observations in Epic: {str(e)}")
 
 # HTML Fallbacks to serve SPA client routing
 from fastapi.responses import HTMLResponse

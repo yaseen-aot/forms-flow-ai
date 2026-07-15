@@ -412,18 +412,30 @@ const View = React.memo((props) => {
                 // Filter submission to ensure no objects are passed to Form.io
                 const sub = ehrSubmission || submission;
                 if (!sub || !sub.data) return sub;
-                const filteredData = {};
-                Object.keys(sub.data).forEach(key => {
-                  const value = sub.data[key];
-                  // Only include string, number, boolean (convert to string for safety)
-                  if (typeof value === 'string') {
-                    filteredData[key] = value;
-                  } else if (typeof value === 'number' || typeof value === 'boolean') {
-                    filteredData[key] = String(value);
+                const deepFilter = (obj) => {
+                  if (obj === null || obj === undefined) return obj;
+                  if (typeof obj === 'object') {
+                    const result = {};
+                    Object.keys(obj).forEach(k => {
+                      const val = obj[k];
+                      if (val !== null && val !== undefined) {
+                        if (typeof val === 'object') {
+                          result[k] = deepFilter(val);
+                        } else if (typeof val === 'string') {
+                          result[k] = val;
+                        } else if (
+                          typeof val === 'number' ||
+                          typeof val === 'boolean'
+                        ) {
+                          result[k] = String(val);
+                        }
+                      }
+                    });
+                    return result;
                   }
-                  // Skip objects, arrays, null, undefined
-                });
-                return { ...sub, data: filteredData };
+                  return typeof obj === 'string' ? obj : String(obj);
+                };
+                return { ...sub, data: deepFilter(sub.data) };
               })()}
               url={url}
               options={{
@@ -609,16 +621,25 @@ const applyEhrDataToForm = (formInstance, submissionData) => {
   // This is necessary because setting submission directly doesn't always update 
   // the visual state of all components in some Form.io versions/configurations
   if (typeof formInstance.getComponent === 'function') {
-    Object.keys(submissionData.data).forEach(key => {
-      const value = submissionData.data[key];
-      // Only set primitive values (string, number, boolean)
-      if (value !== null && value !== undefined && typeof value !== 'object') {
-        const component = formInstance.getComponent(key);
-        if (component) {
-          component.setValue(value, { modified: false });
-        }
-      }
-    });
+    const setComponentValues = (data) => {
+      const traverse = (obj) => {
+        Object.keys(obj).forEach(key => {
+          const value = obj[key];
+          if (value !== null && value !== undefined) {
+            if (typeof value === 'object') {
+              traverse(value);
+            } else {
+              const component = formInstance.getComponent(key);
+              if (component) {
+                component.setValue(value, { modified: false });
+              }
+            }
+          }
+        });
+      };
+      traverse(data);
+    };
+    setComponentValues(submissionData.data);
     
     // Trigger form redraw/update if available to ensure UI reflects changes
     if (typeof formInstance.redraw === 'function') {

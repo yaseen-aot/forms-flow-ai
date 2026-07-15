@@ -70,19 +70,41 @@ function formatPhoneNumber(value, mask = '(999) 999-9999') {
 
 function collectFormFields(form) {
   const fields = [];
-  const containerTypes = new Set(['panel', 'well', 'columns', 'tabs', 'container', 'fieldset', 'button', 'htmlelement', 'content', 'table']);
+  const containerTypes = new Set([
+    'panel', 'well', 'columns', 'tabs', 'container', 'fieldset',
+    'button', 'htmlelement', 'content', 'table'
+  ]);
 
-  const process = (component) => {
+  const process = (component, path = []) => {
     if (!component || typeof component !== 'object') return;
 
+    const isInputContainer = component.input !== false && component.type === 'container';
+    const nextPath = isInputContainer ? [...path, component.key] : path;
+
     // Recurse into known child containers
-    if (Array.isArray(component.components)) component.components.forEach(process);
-    if (Array.isArray(component.columns)) {
-      component.columns.forEach(col => col?.components?.forEach(process));
+    if (Array.isArray(component.components)) {
+      component.components.forEach(c => process(c, nextPath));
     }
-    if (Array.isArray(component.rows)) component.rows.forEach(row => row.forEach(process));
+    if (Array.isArray(component.columns)) {
+      component.columns.forEach(col => {
+        if (Array.isArray(col?.components)) {
+          col.components.forEach(c => process(c, nextPath));
+        }
+      });
+    }
+    if (Array.isArray(component.rows)) {
+      component.rows.forEach(row => {
+        if (Array.isArray(row)) {
+          row.forEach(c => process(c, nextPath));
+        }
+      });
+    }
     if (Array.isArray(component.tabs)) {
-      component.tabs.forEach(tab => tab?.components?.forEach(process));
+      component.tabs.forEach(tab => {
+        if (Array.isArray(tab?.components)) {
+          tab.components.forEach(c => process(c, nextPath));
+        }
+      });
     }
 
     if (!component.key || component.input === false) return;
@@ -100,14 +122,27 @@ function collectFormFields(form) {
 
     fields.push({
       key: component.key,
+      path: [...path, component.key],
       text: Array.from(searchParts).filter(Boolean),
       type: component.type,
       inputMask: component.inputMask
     });
   };
 
-  if (form?.components) form.components.forEach(process);
+  if (form?.components) form.components.forEach(c => process(c, []));
   return fields;
+}
+
+function setNestedValue(obj, pathArray, value) {
+  let current = obj;
+  for (let i = 0; i < pathArray.length - 1; i++) {
+    const key = pathArray[i];
+    if (!current[key] || typeof current[key] !== 'object') {
+      current[key] = {};
+    }
+    current = current[key];
+  }
+  current[pathArray[pathArray.length - 1]] = value;
 }
 
 // =============================================================================
@@ -405,10 +440,20 @@ function findBestField(entry, formFields) {
 // =============================================================================
 
 export function mapPatientToFormio(data, form) {
-  if (!data || !form) return {};
+  console.log("[EHR Mapper] mapPatientToFormio invoked.");
+  console.log("[EHR Mapper] Raw Patient Data Input:", data);
+  console.log("[EHR Mapper] Raw Form Schema Input:", form);
+
+  if (!data || !form) {
+    console.warn("[EHR Mapper] Data or form is null/undefined. Returning empty assignments.");
+    return {};
+  }
 
   const formFields = collectFormFields(form);
+  console.log("[EHR Mapper] Collected Form Fields:", formFields);
+
   const flatData = flattenData(data);
+  console.log("[EHR Mapper] Flattened Patient Data:", flatData);
 
   const assignments = {};
   const used = new Set();
@@ -418,9 +463,10 @@ export function mapPatientToFormio(data, form) {
   if (data.id) {
     const patientIdField = formFields.find(f => f.key === 'patientId');
     if (patientIdField) {
-      assignments['patientId'] = String(data.id);
+      setNestedValue(assignments, patientIdField.path, String(data.id));
       used.add('patientId');
       matches.push({ field: 'patientId', from: 'id', score: 1.0 });
+      console.log("[EHR Mapper] Directly assigned patientId:", data.id);
     } else {
       // Fallback: push to flatData to match dynamically
       flatData.push({
@@ -428,6 +474,115 @@ export function mapPatientToFormio(data, form) {
         label: 'patient fhir number id',
         value: String(data.id)
       });
+      console.log("[EHR Mapper] patientId field not found; pushed id to flatData for fallback matching.");
+    }
+  }
+
+  // Directly assign MRN identifier if it exists
+  if (data.identifier && Array.isArray(data.identifier)) {
+    const mrnIdentifier = data.identifier.find(ident => {
+      if (ident.type && ident.type.coding && Array.isArray(ident.type.coding)) {
+        return ident.type.coding.some(c => c.code === 'MR');
+      }
+      if (ident.system && (
+        ident.system.includes('hospital') ||
+        ident.system.includes('1.2.840.114350')
+      )) {
+        return true;
+      }
+      return false;
+    }) || data.identifier[0];
+
+    if (mrnIdentifier && mrnIdentifier.value) {
+      const mrnField = formFields.find(f => f.key === 'medicalRecordNumber');
+      if (mrnField) {
+        setNestedValue(assignments, mrnField.path, String(mrnIdentifier.value));
+        used.add('medicalRecordNumber');
+        matches.push({
+          field: 'medicalRecordNumber',
+          from: 'identifier.mrn',
+          score: 1.0
+        });
+        console.log("[EHR Mapper] Directly assigned medicalRecordNumber:", mrnIdentifier.value);
+      } else {
+        console.log("[EHR Mapper] medicalRecordNumber field not found in form schema.");
+      }
+    }
+  }
+
+  // Directly assign First Name if it exists
+  if (
+    data.name &&
+    Array.isArray(data.name) &&
+    data.name[0] &&
+    data.name[0].given &&
+    Array.isArray(data.name[0].given) &&
+    data.name[0].given[0]
+  ) {
+    const firstNameField = formFields.find(f => f.key === 'firstName');
+    if (firstNameField) {
+      setNestedValue(assignments, firstNameField.path, String(data.name[0].given[0]));
+      used.add('firstName');
+      matches.push({
+        field: 'firstName',
+        from: 'name[0].given[0]',
+        score: 1.0
+      });
+      console.log("[EHR Mapper] Directly assigned firstName:", data.name[0].given[0]);
+    } else {
+      console.log("[EHR Mapper] firstName field not found in form schema.");
+    }
+  }
+
+  // Directly assign Last Name if it exists
+  if (data.name && Array.isArray(data.name) && data.name[0] && data.name[0].family) {
+    const lastNameField = formFields.find(f => f.key === 'lastName');
+    if (lastNameField) {
+      setNestedValue(assignments, lastNameField.path, String(data.name[0].family));
+      used.add('lastName');
+      matches.push({
+        field: 'lastName',
+        from: 'name[0].family',
+        score: 1.0
+      });
+      console.log("[EHR Mapper] Directly assigned lastName:", data.name[0].family);
+    } else {
+      console.log("[EHR Mapper] lastName field not found in form schema.");
+    }
+  }
+
+  // Directly assign Date of Birth if it exists
+  if (data.birthDate) {
+    const dobField = formFields.find(f => f.key === 'dateOfBirth');
+    if (dobField) {
+      setNestedValue(assignments, dobField.path, String(data.birthDate));
+      used.add('dateOfBirth');
+      matches.push({
+        field: 'dateOfBirth',
+        from: 'birthDate',
+        score: 1.0
+      });
+      console.log("[EHR Mapper] Directly assigned dateOfBirth:", data.birthDate);
+    } else {
+      console.log("[EHR Mapper] dateOfBirth field not found in form schema.");
+    }
+  }
+
+  // Directly assign Gender if it exists
+  if (data.gender) {
+    const genderField = formFields.find(f => f.key === 'gender');
+    if (genderField) {
+      const displayGender = data.gender.charAt(0).toUpperCase() + data.gender.slice(1);
+      setNestedValue(assignments, genderField.path, displayGender);
+      used.add('gender');
+      matches.push({
+        field: 'gender',
+        from: 'gender',
+        score: 1.0
+      });
+      console.log("[EHR Mapper] Directly assigned gender:", displayGender);
+    } else {
+      console.log("[EHR Mapper] gender field not found in form schema.");
     }
   }
 
@@ -438,15 +593,36 @@ export function mapPatientToFormio(data, form) {
       if (!used.has(field.key)) {
         let value = entry.value;
         // Format phone number to match the inputMask if it's a phone field
-        if (field.type === 'phoneNumber' || field.key.toLowerCase().includes('phone') || (field.inputMask && field.inputMask.includes('9'))) {
+        if (
+          field.type === 'phoneNumber' ||
+          field.key.toLowerCase().includes('phone') ||
+          (field.inputMask && field.inputMask.includes('9'))
+        ) {
           value = formatPhoneNumber(value, field.inputMask);
         }
-        assignments[field.key] = value;
+        setNestedValue(assignments, field.path, value);
         used.add(field.key);
-        matches.push({ field: field.key, from: entry.path, score: Number(score.toFixed(2)) });
+        matches.push({
+          field: field.key,
+          from: entry.path,
+          score: Number(score.toFixed(2))
+        });
+        console.log(
+          `[EHR Mapper] Dynamically matched field "${field.key}" ` +
+          `from entry path "${entry.path}" ` +
+          `(score: ${score.toFixed(2)}). Value:`, value
+        );
+      } else {
+        console.log(
+          `[EHR Mapper] Dynamically matched field "${field.key}" ` +
+          `(score: ${score.toFixed(2)}) from entry path "${entry.path}" ` +
+          `was SKIPPED because it is already used.`
+        );
       }
     }
   });
 
+  console.log("[EHR Mapper] Final Map Output:", assignments);
+  console.log("[EHR Mapper] Matches Summary:", matches);
   return assignments;
 }
