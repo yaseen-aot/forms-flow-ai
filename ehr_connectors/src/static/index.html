@@ -628,6 +628,7 @@
             <button class="nav-btn active" id="tab-patient" onclick="navigateToTab('patient')">👤 Patient</button>
             <button class="nav-btn" id="tab-documentref" onclick="navigateToTab('documentref')">📄 DocumentReference</button>
             <button class="nav-btn" id="tab-encounter" onclick="navigateToTab('encounter')">🏥 Encounter</button>
+            <button class="nav-btn" id="tab-observation" onclick="navigateToTab('observation')">📊 Observation</button>
         </div>
         <div class="topbar-badge">Epic FHIR Sandbox</div>
     </div>
@@ -661,6 +662,12 @@
             <div id="patientEncountersSection" style="display:none; margin-bottom: 30px;">
                 <h3 style="font-family: var(--serif); font-size: 22px; font-weight: 400; margin-bottom: 16px; font-style: italic;">Patient Encounters</h3>
                 <div class="document-list" id="patientEncountersList"></div>
+            </div>
+
+            <!-- Observations placeholder -->
+            <div id="patientObservationsSection" style="display:none; margin-bottom: 30px;">
+                <h3 style="font-family: var(--serif); font-size: 22px; font-weight: 400; margin-bottom: 16px; font-style: italic;">Patient Observations</h3>
+                <div class="document-list" id="patientObservationsList"></div>
             </div>
 
             <!-- Documents placeholder -->
@@ -741,6 +748,39 @@
                 </div>
             </div>
         </div>
+
+        <!-- OBSERVATION VIEW -->
+        <div id="view-observation" class="view-section" style="display:none;">
+            <div class="hero">
+                <h1>Observation <em>Record</em></h1>
+                <p>Fetch clinical Observation records directly by Patient ID or Observation ID</p>
+            </div>
+
+            <div class="search-area">
+                <select class="search-type-select" id="observationSearchType" onchange="updateSearchPlaceholder('observation')">
+                    <option value="patient">Patient ID</option>
+                    <option value="observation">Observation ID</option>
+                </select>
+                <div class="search-input-wrap">
+                    <span class="search-prefix" id="observationSearchPrefix">Patient ID →</span>
+                    <input type="text" id="observationIdInput" placeholder="eq081-VQEgP8wR7l5F-0Bwg3" onkeypress="handleEnter(event, 'observation')">
+                </div>
+                <button class="btn-search" id="searchBtn-observation" onclick="searchObservation()">Fetch Observations</button>
+            </div>
+
+            <div class="error-message" id="errorMessage-observation"></div>
+            <div class="loading" id="loader-observation">
+                <div class="spinner"></div>
+                <span>Fetching Observation details…</span>
+            </div>
+
+            <div class="document-list" id="documentList-observation">
+                <div class="empty-state">
+                    <div class="empty-icon">📊</div>
+                    Select search filter and enter the ID to view Observation details
+                </div>
+            </div>
+        </div>
     </div>
 
     <script>
@@ -750,6 +790,7 @@
                 if (tab === 'patient') searchPatient();
                 else if (tab === 'documentref') searchDocRef();
                 else if (tab === 'encounter') searchEncounter();
+                else if (tab === 'observation') searchObservation();
             }
         }
 
@@ -782,6 +823,20 @@
                     input.placeholder = 'eB9g5wR7l5F-0Bwg3';
                     btn.textContent = 'Fetch Encounter';
                 }
+            } else if (tab === 'observation') {
+                const type = document.getElementById('observationSearchType').value;
+                const prefix = document.getElementById('observationSearchPrefix');
+                const input = document.getElementById('observationIdInput');
+                const btn = document.getElementById('searchBtn-observation');
+                if (type === 'patient') {
+                    prefix.textContent = 'Patient ID →';
+                    input.placeholder = 'eq081-VQEgP8wR7l5F-0Bwg3';
+                    btn.textContent = 'Fetch Observations';
+                } else {
+                    prefix.textContent = 'Observation ID →';
+                    input.placeholder = 'eH.2Bt.7x24v78s-rawQ3';
+                    btn.textContent = 'Fetch Observation';
+                }
             }
         }
 
@@ -794,6 +849,8 @@
                 currentActiveTab = 'documentref';
             } else if (document.getElementById('tab-encounter').classList.contains('active')) {
                 currentActiveTab = 'encounter';
+            } else if (document.getElementById('tab-observation').classList.contains('active')) {
+                currentActiveTab = 'observation';
             }
 
             // Extract Patient ID from current active tab if the active tab is performing a patient-based search
@@ -809,6 +866,11 @@
                 const searchType = document.getElementById('encounterSearchType').value;
                 if (searchType === 'patient') {
                     carriedPatientId = document.getElementById('encounterIdInput').value.trim();
+                }
+            } else if (currentActiveTab === 'observation') {
+                const searchType = document.getElementById('observationSearchType').value;
+                if (searchType === 'patient') {
+                    carriedPatientId = document.getElementById('observationIdInput').value.trim();
                 }
             }
 
@@ -829,6 +891,11 @@
                     updateSearchPlaceholder('encounter');
                     document.getElementById('encounterIdInput').value = carriedPatientId;
                     searchEncounter();
+                } else if (tabName === 'observation') {
+                    document.getElementById('observationSearchType').value = 'patient';
+                    updateSearchPlaceholder('observation');
+                    document.getElementById('observationIdInput').value = carriedPatientId;
+                    searchObservation();
                 }
             } else {
                 // If no Patient ID is carried over, retain the tab's current status and update URL
@@ -868,6 +935,14 @@
                 
                 const urlPath = isPatientSearch ? `/encounter/patient/${id}` : `/encounter/${id}`;
                 window.history.pushState(null, '', urlPath);
+            } else if (tabName === 'observation') {
+                document.getElementById('observationSearchType').value = isPatientSearch ? 'patient' : 'observation';
+                updateSearchPlaceholder('observation');
+                document.getElementById('observationIdInput').value = id;
+                searchObservation();
+                
+                const urlPath = isPatientSearch ? `/observation/patient/${id}` : `/observation/${id}`;
+                window.history.pushState(null, '', urlPath);
             }
         }
 
@@ -875,6 +950,7 @@
             if (tab === 'patient') return document.getElementById('patientIdInput').value.trim();
             if (tab === 'documentref') return document.getElementById('docrefIdInput').value.trim();
             if (tab === 'encounter') return document.getElementById('encounterIdInput').value.trim();
+            if (tab === 'observation') return document.getElementById('observationIdInput').value.trim();
             return '';
         }
 
@@ -893,6 +969,8 @@
             const docrefIdMatch = path.match(/^\/documentref\/([^\/]+)$/);
             const encounterPatientMatch = path.match(/^\/encounter\/patient\/([^\/]+)$/);
             const encounterIdMatch = path.match(/^\/encounter\/([^\/]+)$/);
+            const observationPatientMatch = path.match(/^\/observation\/patient\/([^\/]+)$/);
+            const observationIdMatch = path.match(/^\/observation\/([^\/]+)$/);
             
             if (patientMatch) {
                 switchTab('patient');
@@ -929,6 +1007,20 @@
                 updateSearchPlaceholder('encounter');
                 document.getElementById('encounterIdInput').value = id;
                 searchEncounter();
+            } else if (observationPatientMatch) {
+                switchTab('observation');
+                const id = observationPatientMatch[1];
+                document.getElementById('observationSearchType').value = 'patient';
+                updateSearchPlaceholder('observation');
+                document.getElementById('observationIdInput').value = id;
+                searchObservation();
+            } else if (observationIdMatch && observationIdMatch[1] !== 'patient') {
+                switchTab('observation');
+                const id = observationIdMatch[1];
+                document.getElementById('observationSearchType').value = 'observation';
+                updateSearchPlaceholder('observation');
+                document.getElementById('observationIdInput').value = id;
+                searchObservation();
             } else {
                 switchTab('patient');
             }
@@ -1147,6 +1239,8 @@
             const docList = document.getElementById('documentList-patient');
             const encList = document.getElementById('patientEncountersList');
             const encSection = document.getElementById('patientEncountersSection');
+            const obsList = document.getElementById('patientObservationsList');
+            const obsSection = document.getElementById('patientObservationsSection');
             const searchBtn = document.getElementById('searchBtn-patient');
             const errorMsg = document.getElementById('errorMessage-patient');
             const resultsMeta = document.getElementById('resultsMeta-patient');
@@ -1156,19 +1250,22 @@
             demographicsDiv.innerHTML = '';
             docList.innerHTML = '';
             encList.innerHTML = '';
+            obsList.innerHTML = '';
             encSection.style.display = 'none';
             docsSection.style.display = 'none';
+            obsSection.style.display = 'none';
             errorMsg.style.display = 'none';
             resultsMeta.style.display = 'none';
             emptyState.style.display = 'none';
             searchBtn.disabled = true;
 
             try {
-                // Fetch patient demographics, encounters, and document references in parallel
-                const [patientRes, docsRes, encsRes] = await Promise.allSettled([
+                // Fetch patient demographics, encounters, document references, and observations in parallel
+                const [patientRes, docsRes, encsRes, obsRes] = await Promise.allSettled([
                     fetch(`/epic/patient/${encodeURIComponent(patientId)}`),
                     fetch(`/epic/documents?patientId=${encodeURIComponent(patientId)}`),
-                    fetch(`/epic/encounters?patientId=${encodeURIComponent(patientId)}`)
+                    fetch(`/epic/encounters?patientId=${encodeURIComponent(patientId)}`),
+                    fetch(`/epic/observations?patientId=${encodeURIComponent(patientId)}`)
                 ]);
 
                 // 1. Process Patient Demographics
@@ -1204,6 +1301,14 @@
                 } else {
                     const errorText = docsRes.status === 'fulfilled' ? await docsRes.value.text() : 'Failed to search documents';
                     throw new Error(errorText || 'Failed to search documents');
+                }
+
+                // 4. Process Observations
+                if (obsRes.status === 'fulfilled' && obsRes.value.ok) {
+                    const data = await obsRes.value.json();
+                    if (data.resourceType === 'Bundle' && data.entry && data.entry.length > 0) {
+                        renderPatientObservationsList(data.entry);
+                    }
                 }
 
             } catch (error) {
@@ -1320,6 +1425,243 @@
                 loader.style.display = 'none';
                 searchBtn.disabled = false;
             }
+        }
+
+        async function searchObservation() {
+            const id = document.getElementById('observationIdInput').value.trim();
+            if (!id) return;
+
+            const type = document.getElementById('observationSearchType').value;
+
+            // Update URL context if it's direct ID lookup or search
+            const pathUrl = type === 'patient' ? `/observation/patient/${id}` : `/observation/${id}`;
+            if (window.location.pathname !== pathUrl) {
+                window.history.pushState(null, '', pathUrl);
+            }
+
+            const loader = document.getElementById('loader-observation');
+            const container = document.getElementById('documentList-observation');
+            const searchBtn = document.getElementById('searchBtn-observation');
+            const errorMsg = document.getElementById('errorMessage-observation');
+
+            loader.style.display = 'flex';
+            container.innerHTML = '';
+            errorMsg.style.display = 'none';
+            searchBtn.disabled = true;
+
+            try {
+                if (type === 'patient') {
+                    // Search all observations for this patient
+                    const response = await fetch(`/epic/observations?patientId=${encodeURIComponent(id)}`);
+                    const data = await response.json();
+                    if (!response.ok) throw new Error(data.detail || 'Failed to search observations');
+                    
+                    if (data.resourceType === 'Bundle' && data.entry && data.entry.length > 0) {
+                        renderObservationsList(data.entry, 'documentList-observation');
+                    } else {
+                        container.innerHTML = '<div class="empty-state"><div class="empty-icon">🔍</div>No observations found for this patient.</div>';
+                    }
+                } else {
+                    // Fetch single observation by ID
+                    const response = await fetch(`/epic/observation/${encodeURIComponent(id)}`);
+                    const data = await response.json();
+                    if (!response.ok) throw new Error(data.detail || 'Failed to fetch observation');
+                    renderSingleObservation(data);
+                }
+            } catch (error) {
+                console.error('Observation search error:', error);
+                errorMsg.textContent = '⚠ ' + error.message;
+                errorMsg.style.display = 'block';
+            } finally {
+                loader.style.display = 'none';
+                searchBtn.disabled = false;
+            }
+        }
+
+        function renderObservationsList(entries, containerId) {
+            const container = document.getElementById(containerId);
+            container.innerHTML = '';
+            
+            entries.forEach((entry) => {
+                const obs = entry.resource;
+                if (!obs || obs.resourceType !== 'Observation') return;
+                
+                const card = document.createElement('div');
+                card.className = 'document-card';
+                card.style.padding = '14px 20px';
+                card.style.cursor = 'pointer';
+                card.style.transition = 'all 0.15s';
+                card.onclick = () => {
+                    document.getElementById('observationSearchType').value = 'observation';
+                    updateSearchPlaceholder('observation');
+                    document.getElementById('observationIdInput').value = obs.id;
+                    searchObservation();
+                };
+                
+                const status = obs.status || 'unknown';
+                const codeText = obs.code?.text || obs.code?.coding?.[0]?.display || 'Observation';
+                let valStr = 'N/A';
+                if (obs.valueQuantity) {
+                    valStr = obs.valueQuantity.value + (obs.valueQuantity.unit ? ' ' + obs.valueQuantity.unit : '');
+                } else if (obs.valueString) {
+                    valStr = obs.valueString;
+                } else if (obs.valueCodeableConcept) {
+                    valStr = obs.valueCodeableConcept.text || obs.valueCodeableConcept.coding?.[0]?.display;
+                } else if (obs.component && obs.component.length > 0) {
+                    valStr = obs.component.map(c => {
+                        const label = c.code?.text || c.code?.coding?.[0]?.display || '';
+                        const val = c.valueQuantity ? c.valueQuantity.value : (c.valueString || '');
+                        return `${label}: ${val}`;
+                    }).join(', ');
+                }
+                const date = obs.effectiveDateTime ? new Date(obs.effectiveDateTime).toLocaleDateString() : (obs.issued ? new Date(obs.issued).toLocaleDateString() : 'N/A');
+                
+                card.innerHTML = `
+                    <div style="display:flex; justify-content:space-between; align-items:center; width:100%;">
+                        <div style="display:flex; flex-direction:column; gap:4px;">
+                            <div style="font-weight:600; font-size:14px; color:var(--text-primary);">${codeText}</div>
+                            <div style="font-size:13px; color:var(--accent); font-weight:500;">Value: ${valStr}</div>
+                            <div style="font-size:11px; color:var(--text-muted); font-family:var(--mono);">${obs.id} | Date: ${date}</div>
+                        </div>
+                        <div class="status-badge" style="background:var(--accent-dim); color:var(--accent); border-color:rgba(88,166,255,0.2);">${status}</div>
+                    </div>
+                `;
+                container.appendChild(card);
+            });
+        }
+
+        function renderSingleObservation(obs) {
+            const container = document.getElementById('documentList-observation');
+            container.innerHTML = '';
+
+            const id = obs.id;
+            const status = obs.status || 'unknown';
+            const codeText = obs.code?.text || obs.code?.coding?.[0]?.display || 'Observation';
+            const category = obs.category?.[0]?.coding?.[0]?.display || obs.category?.[0]?.text || 'N/A';
+            const effectiveDate = obs.effectiveDateTime ? new Date(obs.effectiveDateTime).toLocaleString() : (obs.issued ? new Date(obs.issued).toLocaleString() : 'N/A');
+            
+            let valHtml = '';
+            if (obs.valueQuantity) {
+                const val = obs.valueQuantity.value;
+                const unit = obs.valueQuantity.unit || '';
+                valHtml = `<div class="meta-value" style="font-size: 24px; font-weight: bold; color: var(--accent);">${val} <span style="font-size: 14px; font-weight: normal; color: var(--text-muted);">${unit}</span></div>`;
+            } else if (obs.valueString) {
+                valHtml = `<div class="meta-value" style="font-size: 18px; font-weight: bold; color: var(--accent);">${obs.valueString}</div>`;
+            } else if (obs.valueCodeableConcept) {
+                const txt = obs.valueCodeableConcept.text || obs.valueCodeableConcept.coding?.[0]?.display || '';
+                valHtml = `<div class="meta-value" style="font-size: 18px; font-weight: bold; color: var(--accent);">${txt}</div>`;
+            } else if (obs.component && obs.component.length > 0) {
+                valHtml = `<div style="display:flex; flex-direction:column; gap:8px; margin-top:8px;">`;
+                obs.component.forEach(c => {
+                    const label = c.code?.text || c.code?.coding?.[0]?.display || 'Sub-code';
+                    let cVal = 'N/A';
+                    if (c.valueQuantity) {
+                        cVal = c.valueQuantity.value + (c.valueQuantity.unit ? ' ' + c.valueQuantity.unit : '');
+                    } else if (c.valueString) {
+                        cVal = c.valueString;
+                    } else if (c.valueCodeableConcept) {
+                        cVal = c.valueCodeableConcept.text || c.valueCodeableConcept.coding?.[0]?.display;
+                    }
+                    valHtml += `
+                        <div style="display:flex; justify-content:space-between; padding:6px 0; border-bottom:1px solid rgba(255,255,255,0.05);">
+                            <span style="font-size:13px; color:var(--text-muted);">${label}</span>
+                            <span style="font-size:13px; font-weight:600; color:var(--accent);">${cVal}</span>
+                        </div>
+                    `;
+                });
+                valHtml += `</div>`;
+            } else {
+                valHtml = `<div class="meta-value">N/A</div>`;
+            }
+
+            const jsonPanelId = 'observation-json-panel';
+            const card = document.createElement('div');
+            card.className = 'document-card';
+            card.innerHTML = `
+                <div class="card-header">
+                    <div class="card-title-group">
+                        <div class="card-title">${codeText}</div>
+                        <div class="card-id">Observation ID: ${id}</div>
+                    </div>
+                    <div class="status-badge" style="background:var(--accent-dim);color:var(--accent);border-color:rgba(88,166,255,0.2);">${status}</div>
+                </div>
+                <div class="card-meta">
+                    <div class="meta-item" style="grid-column: span 2;">
+                        <div class="meta-label">Observation Value</div>
+                        ${valHtml}
+                    </div>
+                    <div class="meta-item">
+                        <div class="meta-label">Category</div>
+                        <div class="meta-value">${category}</div>
+                    </div>
+                    <div class="meta-item">
+                        <div class="meta-label">Effective Date</div>
+                        <div class="meta-value">${effectiveDate}</div>
+                    </div>
+                </div>
+                <div class="card-actions">
+                    <button class="btn-ghost" id="btn-${jsonPanelId}" onclick="toggleJSON('${jsonPanelId}', this)">
+                        ⚙ Raw JSON
+                    </button>
+                </div>
+                <div class="panel json-panel" id="${jsonPanelId}">
+                    <pre>${JSON.stringify(obs, null, 2)}</pre>
+                </div>
+            `;
+            container.appendChild(card);
+        }
+
+        function renderPatientObservationsList(entries) {
+            const list = document.getElementById('patientObservationsList');
+            list.innerHTML = '';
+            
+            let count = 0;
+            entries.forEach((entry) => {
+                const obs = entry.resource;
+                if (!obs || obs.resourceType !== 'Observation') return;
+                count++;
+                
+                const card = document.createElement('div');
+                card.className = 'document-card';
+                card.style.padding = '14px 20px';
+                card.style.cursor = 'pointer';
+                card.style.transition = 'all 0.15s';
+                card.onclick = () => {
+                    navigateToPath('observation', obs.id);
+                };
+                
+                const status = obs.status || 'unknown';
+                const codeText = obs.code?.text || obs.code?.coding?.[0]?.display || 'Observation';
+                let valStr = 'N/A';
+                if (obs.valueQuantity) {
+                    valStr = obs.valueQuantity.value + (obs.valueQuantity.unit ? ' ' + obs.valueQuantity.unit : '');
+                } else if (obs.valueString) {
+                    valStr = obs.valueString;
+                } else if (obs.valueCodeableConcept) {
+                    valStr = obs.valueCodeableConcept.text || obs.valueCodeableConcept.coding?.[0]?.display;
+                } else if (obs.component && obs.component.length > 0) {
+                    valStr = obs.component.map(c => {
+                        const label = c.code?.text || c.code?.coding?.[0]?.display || '';
+                        const val = c.valueQuantity ? c.valueQuantity.value : (c.valueString || '');
+                        return `${label}: ${val}`;
+                    }).join(', ');
+                }
+                const date = obs.effectiveDateTime ? new Date(obs.effectiveDateTime).toLocaleDateString() : (obs.issued ? new Date(obs.issued).toLocaleDateString() : 'N/A');
+                
+                card.innerHTML = `
+                    <div style="display:flex; justify-content:space-between; align-items:center; width:100%;">
+                        <div style="display:flex; flex-direction:column; gap:4px;">
+                            <div style="font-weight:600; font-size:14px; color:var(--text-primary);">${codeText}</div>
+                            <div style="font-size:13px; color:var(--accent); font-weight:500;">Value: ${valStr}</div>
+                            <div style="font-size:11px; color:var(--text-muted); font-family:var(--mono);">${obs.id} | Date: ${date}</div>
+                        </div>
+                        <div class="status-badge" style="background:var(--accent-dim); color:var(--accent); border-color:rgba(88,166,255,0.2);">${status}</div>
+                    </div>
+                `;
+                list.appendChild(card);
+            });
+            
+            document.getElementById('patientObservationsSection').style.display = count > 0 ? 'block' : 'none';
         }
 
         // ── Original Render & Decoding Functions ─────────────────────────────────

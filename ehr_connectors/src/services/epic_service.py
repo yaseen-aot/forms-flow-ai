@@ -502,6 +502,33 @@ class EpicService:
             logger.error(f"Unexpected error fetching document reference: {str(e)}")
             raise
 
+    async def get_observation(self, observation_id: str):
+        """
+        Fetch a single Observation resource by ID from Epic.
+        """
+        token_data = await self.get_access_token()
+        token = token_data["access_token"]
+
+        url = f"/Observation/{observation_id}"
+        logger.info(f"Fetching Observation {observation_id} from Epic...")
+
+        try:
+            response = await self.client.get(
+                url,
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "Accept": "application/fhir+json",
+                },
+            )
+            response.raise_for_status()
+            return response.json()
+        except httpx.HTTPStatusError as e:
+            logger.error(f"HTTP Error fetching observation {observation_id}: {e.response.status_code} - {e.response.text}")
+            raise
+        except Exception as e:
+            logger.error(f"Unexpected error fetching observation {observation_id}: {str(e)}")
+            raise
+
     async def search_encounters(self, patient_id: str):
         """
         Search for Encounter resources for a patient.

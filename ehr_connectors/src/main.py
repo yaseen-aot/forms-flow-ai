@@ -186,6 +186,15 @@ async def get_documentref_endpoint(docref_id: str):
         logger.error(f"Error in get_documentref for docref {docref_id}: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to fetch DocumentReference from Epic: {str(e)}")
 
+@app.get("/epic/observation/{observation_id}")
+async def get_observation_endpoint(observation_id: str):
+    try:
+        result = await epic_service.get_observation(observation_id=observation_id)
+        return result
+    except Exception as e:
+        logger.error(f"Error in get_observation for observation {observation_id}: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to fetch Observation from Epic: {str(e)}")
+
 @app.get("/epic/encounters")
 async def search_encounters_endpoint(patientId: str):
     try:
@@ -216,6 +225,8 @@ from fastapi.responses import HTMLResponse
 @app.get("/documentref/{path:path}", response_class=HTMLResponse)
 @app.get("/encounter", response_class=HTMLResponse)
 @app.get("/encounter/{path:path}", response_class=HTMLResponse)
+@app.get("/observation", response_class=HTMLResponse)
+@app.get("/observation/{path:path}", response_class=HTMLResponse)
 async def serve_spa_index():
     import os
     index_path = os.path.join(os.path.dirname(__file__), "static", "index.html")
