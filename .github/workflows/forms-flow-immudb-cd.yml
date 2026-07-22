@@ -94,13 +94,13 @@ jobs:
       - name: Verify EKS token
         run: aws eks get-token --cluster-name ${{ secrets.QA_EKS_CLUSTER }}
 
+      - name: Update Kube config
+        run: aws eks update-kubeconfig --region ca-central-1 --name ${{ secrets.QA_EKS_CLUSTER }}
+
       - name: Verify kubectl
         run: |
           kubectl config current-context
           kubectl get ns
-
-      - name: Update Kube config
-        run: aws eks update-kubeconfig --region ca-central-1 --name ${{ secrets.QA_EKS_CLUSTER }}
 
       - name: Deploy ImmuDB Service to EKS
         run: |
