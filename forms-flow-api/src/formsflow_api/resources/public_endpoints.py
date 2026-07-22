@@ -2,7 +2,7 @@
 
 from http import HTTPStatus
 
-from flask import current_app, request
+from flask import request
 from flask_restx import Namespace, Resource, fields
 from formsflow_api_utils.exceptions import BusinessException
 from formsflow_api_utils.utils import (
@@ -242,27 +242,14 @@ class PublicDraftUpdateResourceById(Resource):
     )
     def put(application_id: int):
         """Update draft details."""
-        try:
-            input_json = request.get_json() or {}
-            current_app.logger.info(f"[PUBLIC DRAFT UPDATE] Received application_id={application_id}")
-            application_schema = ApplicationSchema()
-            dict_data = application_schema.load(input_json)
-            ApplicationService.update_application(application_id, data=dict_data)
-            return (
-                f"Updated {application_id} successfully",
-                HTTPStatus.OK,
-            )
-        except BusinessException as err:
-            message = (
-                err.details[0]["message"]
-                if hasattr(err, "details") and err.details
-                else err.message
-            )
-            current_app.logger.warning(f"[PUBLIC DRAFT UPDATE] BusinessException for app {application_id}: {message} (code: {err.status_code})")
-            return {"message": message}, err.status_code
-        except Exception as exc:
-            current_app.logger.exception(f"[PUBLIC DRAFT UPDATE ERROR] Exception for app {application_id}: {exc}")
-            return {"message": f"Failed to update draft {application_id}: {str(exc)}"}, HTTPStatus.INTERNAL_SERVER_ERROR
+        input_json = request.get_json()
+        application_schema = ApplicationSchema()
+        dict_data = application_schema.load(input_json)
+        ApplicationService.update_application(application_id, data=dict_data)
+        return (
+            f"Updated {application_id} successfully",
+            HTTPStatus.OK,
+        )
 
 
 @cors_preflight("GET,OPTIONS")

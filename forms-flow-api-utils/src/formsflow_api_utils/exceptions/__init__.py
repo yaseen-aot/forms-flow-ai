@@ -55,18 +55,14 @@ class ExternalError(ErrorCodeMixin, Enum):
 class BusinessException(Exception):
     """Exception that adds error code and error."""
 
-    def __init__(self, error_code, details=None, detail_message=None, include_details=False, code=None, status_code=HTTPStatus.BAD_REQUEST):
-        if isinstance(error_code, str):
-            super().__init__(error_code)
-            self.message = error_code
-            self.code = code or "business_error"
-            self.status_code = status_code
-        else:
-            super().__init__(error_code.message)
-            self.message = detail_message if include_details and detail_message else error_code.message
-            self.code = error_code.code
-            self.status_code = error_code.status_code
+    def __init__(self, error_code: ErrorCodeMixin, details=None, detail_message=None, include_details=False):
+        super().__init__(error_code.message)
+        
+        # Include the detailed message in the main message if include_details is True
+        self.message = detail_message if include_details and detail_message else error_code.message
             
+        self.code = error_code.code
+        self.status_code = error_code.status_code
         if detail_message:
             details = [dict(
                 code="ERROR_DETAILS",
@@ -97,8 +93,6 @@ def create_error_detail(code, message):
 
 
 def handle_sqlalchemy_error(e, model=None):
-    import logging
-    logging.getLogger("app").error("SQLAlchemy Error caught: %s", str(e), exc_info=True)
     error_message = "Database error occurred"
     error_code = "database_error"
     details = []

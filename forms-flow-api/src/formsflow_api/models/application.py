@@ -94,24 +94,14 @@ class Application(
     @classmethod
     def created_by_condition_query_for_draft(cls, query, username):
         """Query to filter by created by if its a draft."""
-        if username == ANONYMOUS_USER or not username:
-            draft_condition = and_(
-                cls.is_draft.is_(True),
-                or_(
-                    cls.created_by == username,
-                    cls.created_by.is_(None),
-                    cls.created_by == ANONYMOUS_USER,
-                    cls.created_by == ""
-                )
-            )
-        else:
-            draft_condition = and_(
-                cls.is_draft.is_(True), cls.created_by == username
-            )
         query = query.filter(
             or_(
-                cls.is_draft.is_(False),
-                draft_condition
+                cls.is_draft.is_(
+                    False
+                ),  # No need to filter by created_by if it's not a draft
+                and_(
+                    cls.is_draft.is_(True), cls.created_by == username
+                ),  # Filter by created_by if it's a draft
             )
         )
         return query
