@@ -14,7 +14,7 @@ defaults:
 
 jobs:
   build-and-push:
-    if: github.repository == 'AOT-Technologies/forms-flow-ai-EPIC'
+    if: github.repository == 'yaseen-aot/forms-flow-ai'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -64,6 +64,12 @@ jobs:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_ACCESS_TOKEN }}
 
+      - name: Verify build tags and targets
+        run: |
+          echo "Target version tag: ${{ env.VERSION }}"
+          echo "Build EHR Connectors target: ${{ steps.filter.outputs.connectors }}"
+          echo "Build ImmuDB Audit Plugin target: ${{ steps.filter.outputs.immudb }}"
+
       # Build and push EHR Connector (only if connector files changed)
       - name: Build and push EHR Connectors
         if: steps.filter.outputs.connectors == 'true'
@@ -86,7 +92,7 @@ jobs:
 
   deploy:
     needs: build-and-push
-    if: github.repository == 'AOT-Technologies/forms-flow-ai-EPIC'
+    if: github.repository == 'yaseen-aot/forms-flow-ai'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
