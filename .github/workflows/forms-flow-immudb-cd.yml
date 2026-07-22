@@ -88,6 +88,17 @@ jobs:
           chmod +x kubectl
           sudo mv kubectl /usr/local/bin/
 
+      - name: Verify AWS identity
+        run: aws sts get-caller-identity
+
+      - name: Verify EKS token
+        run: aws eks get-token --cluster-name ${{ secrets.QA_EKS_CLUSTER }}
+
+      - name: Verify kubectl
+        run: |
+          kubectl config current-context
+          kubectl get ns
+
       - name: Update Kube config
         run: aws eks update-kubeconfig --region ca-central-1 --name ${{ secrets.QA_EKS_CLUSTER }}
 
