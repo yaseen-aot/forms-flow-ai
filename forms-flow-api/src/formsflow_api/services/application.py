@@ -383,6 +383,7 @@ class ApplicationService:  # pylint: disable=too-many-public-methods
     @immudb_audit(event_name="update_application", index_keys=["application_id"])
     def update_application(application_id: int, data: Dict, **kwargs):
         """Update application."""
+        current_app.logger.error("update_application input data: %s", str(data))
         user: UserContext = kwargs["user"]
         user_id: str = user.user_name or ANONYMOUS_USER
         application = Application.find_by_id(

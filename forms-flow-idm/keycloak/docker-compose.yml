@@ -45,7 +45,7 @@ services:
       - KEYCLOAK_START_MODE=${KEYCLOAK_START_MODE:-start-dev}
       - KEYCLOAK_HTTP_PATH=${KEYCLOAK_HTTP_PATH:-/auth}
     ports:
-      - "8080:8080"
+      - "8084:8080"
     depends_on:
       - keycloak-db
       - keycloak-customizations
