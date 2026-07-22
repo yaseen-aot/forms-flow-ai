@@ -2,7 +2,37 @@
 
 Mark  items as `Added`, `Changed`, `Fixed`, `Modified`, `Removed`, `Untested Features`, `Upcoming Features`, `Known Issues`
 
+
+## 8.0.0 
+
+`Added`
+
+**forms-flow-api**
+
+
+* Added new endpoints to manage form flow creation and updates:
+   * `/form-flow-builder` - Create form design, workflow, authorizations, and mapper details.
+   * `/form-flow-builder/<mapper-id>` - Update existing configurations.
+* Added a new endpoint to handle task completion:
+   * `/tasks/<task-id>/complete` – This endpoint creates a new submission, records an audit entry, updates the application status, and completes the task in the workflow engine.
+* Added an Alembic script to introduce the new `private_notes` column in the applicationaudit table.
+
+**forms-flow-bpm**
+
+* Fixed security vulnerabilities
+
 ## 7.3.0 - 2025-10-14
+
+`Modified`
+
+**forms-flow-web**
+* Form.io token fetching logic has been moved to the service micro-frontend.
+
+`Fixed`
+
+* Sorting is now available for all columns on the review task listing page.
+* Fixed minor issues in Reviewer & Analyze Submissions page.
+* Fixed PDF generation issue with a generic custom theme.
 
 `Modified`
 

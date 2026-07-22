@@ -8,7 +8,7 @@ services:
       POSTGRES_PASSWORD: ${CAMUNDA_JDBC_PASSWORD:-changeme}
       POSTGRES_DB: ${CAMUNDA_JDBC_DB_NAME:-formsflow-bpm}
     volumes:
-      - postgres_camunda:/var/lib/postgresql/data
+      - postgres_camunda:/var/lib/postgresql
     ports:
       - '5432:5432'
     restart: unless-stopped
@@ -75,6 +75,8 @@ services:
       - REDIS_PASSCODE=${REDIS_PASSCODE:-changeme}
       - SESSION_COOKIE_SECURE=${SESSION_COOKIE_SECURE:-false}
       - FORMSFLOW_DOC_API_URL=${FORMSFLOW_DOC_API_URL}
+      - MAIL_USER=${MAIL_USER}
+      - MAIL_PASSWORD=${MAIL_PASSWORD}
 
     networks:
       - forms-flow-bpm-network

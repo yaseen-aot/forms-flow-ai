@@ -47,6 +47,38 @@ Integrating new module into formsflow is straight forward but the module should 
 
 [Instructions for root-config setup](../deployment/Individual-deployment/README.md)
 
+### Building Docker Image with Embedded forms-flow-web
+
+The Dockerfile includes a multi-stage build that compiles both `forms-flow-web` and `forms-flow-web-root-config` into a single image. The `forms-flow-web` microfrontend is served from `/mf/forms-flow-web.js` within the container.
+
+**Important:** The build context must be the parent directory (`forms-flow-ai/`) to access both `forms-flow-web` and `forms-flow-web-root-config`.
+
+**Build Command:**
+
+```bash
+# From the forms-flow-ai/ directory
+docker build \
+  --platform linux/amd64 \
+  -f forms-flow-web-root-config/Dockerfile \
+  --build-arg NODE_ENV=production \
+  --build-arg MF_FORMSFLOW_WEB_URL="/mf/forms-flow-web.js" \
+  --build-arg MF_FORMSFLOW_NAV_URL="https://forms-flow-microfrontends.aot-technologies.com/forms-flow-nav@v8.1.0-alpha/forms-flow-nav.gz.js" \
+  --build-arg MF_FORMSFLOW_SERVICE_URL="https://forms-flow-microfrontends.aot-technologies.com/forms-flow-service@v8.1.0-alpha/forms-flow-service.gz.js" \
+  --build-arg MF_FORMSFLOW_COMPONENTS_URL="https://forms-flow-microfrontends.aot-technologies.com/forms-flow-components@v8.1.0-alpha/forms-flow-components.gz.js" \
+  --build-arg MF_FORMSFLOW_ADMIN_URL="https://forms-flow-microfrontends.aot-technologies.com/forms-flow-admin@v8.1.0-alpha/forms-flow-admin.gz.js" \
+  --build-arg MF_FORMSFLOW_REVIEW_URL="https://forms-flow-microfrontends.aot-technologies.com/forms-flow-review@v8.1.0-alpha/forms-flow-review.gz.js" \
+  --build-arg MF_FORMSFLOW_SUBMISSIONS_URL="https://forms-flow-microfrontends.aot-technologies.com/forms-flow-submissions@v8.1.0-alpha/forms-flow-submissions.gz.js" \
+  -t forms-flow-epic-web-root:qa-latest .
+```
+
+**Key Points:**
+- `MF_FORMSFLOW_WEB_URL` defaults to `/mf/forms-flow-web.js` (served from within the container)
+- The Dockerfile automatically builds `forms-flow-web` and includes it in the image
+- The microfrontend is copied to `/usr/share/nginx/html/mf/forms-flow-web.js` and served with CORS headers
+- Other microfrontends can still point to CDN URLs
+- The build includes both `forms-flow-web` source code and the compiled microfrontend
+- The URL mapping in `index.ejs` uses `process.env.MF_FORMSFLOW_WEB_URL` which is set at build time
+
 ### Additional reference
 
 Check out the [installation documentation](https://aot-technologies.github.io/forms-flow-installation-doc/) for installation instructions and [features documentation](https://aot-technologies.github.io/forms-flow-ai-doc) to explore features and capabilities in detail.

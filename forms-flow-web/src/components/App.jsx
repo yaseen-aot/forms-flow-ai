@@ -5,6 +5,7 @@ import { ConnectedRouter } from "connected-react-router";
 import "../assets/styles/layouts.scss";
 import "../assets/styles/user-styles.css";
 import "../assets/styles/formioTooltip.scss";
+import "../styles.scss";
 import BaseRouting from "./BaseRouting";
 import { Helmet } from "react-helmet";
 import { KEYCLOAK_URL } from "../constants/constants";
@@ -32,7 +33,8 @@ const App = React.memo((props) => {
   }, []);
 
   return (
-    <div className={`${hasMultitenancyHeader ? 'main-container-with-custom-header ' : 'main-container' } ${isPreviewRoute && 'm-0'}`}>
+    //need to handle multitentant container. 
+    <div className={`${hasMultitenancyHeader ? 'main-container-with-custom-header ' : ' page-container' } ${isPreviewRoute && 'm-0'}`}>
       <Helmet>
         {KEYCLOAK_URL ? <link rel="preconnect" href={KEYCLOAK_URL} /> : null}
       </Helmet>

@@ -6,6 +6,123 @@
   <meta http-equiv="X-UA-Compatible" content="ie=edge">
   <title>formsflow.ai</title>
   <script src="/config/config.js"></script>
+  <!-- 
+    Workaround for i18next in forms-flow-service trying to load translations from 
+    paths that return HTML (SPA fallback). This interceptor returns {} for any 
+    response.json() call that fails with status 200, preventing the app from crashing.
+    Can be removed once forms-flow-service is updated with proper i18next config.
+  -->
+  <script>
+    (function() {
+      'use strict';
+      if (typeof Response !== 'undefined' && Response.prototype && Response.prototype.json && !Response.prototype.json._patched) {
+        var originalJson = Response.prototype.json;
+        Response.prototype.json = function() {
+          var response = this;
+          return originalJson.call(response).catch(function(error) {
+            // If JSON parsing fails with status 200, it's likely HTML from SPA routing
+            // Return empty object to prevent breaking the app (common with i18next misconfiguration)
+            if (response.status === 200) {
+              console.warn('[i18next workaround] JSON parse failed for status 200 response, returning {}. URL:', response.url);
+              return {};
+            }
+            throw error;
+          });
+        };
+        Response.prototype.json._patched = true;
+      }
+    })();
+  </script>
+  <!-- Capture EHR launch parameters (iss, code) from URL and store in sessionStorage -->
+  <!-- Also redirect to launch.html if iss and launch are present (but no code) -->
+  <script>
+    (function() {
+      // Check URL parameters for EHR launch context
+      const urlParams = new URLSearchParams(window.location.search);
+      const iss = urlParams.get('iss');
+      const code = urlParams.get('code');
+      const state = urlParams.get('state');
+      const launch = urlParams.get('launch');
+      const isEHR = urlParams.get('isEHR');
+      
+      // Store in sessionStorage if present (for use by React app)
+      if (iss) {
+        sessionStorage.setItem('epic_iss', iss);
+      }
+      if (code) {
+        sessionStorage.setItem('epic_code', code);
+      }
+      if (state) {
+        sessionStorage.setItem('epic_state', state);
+      }
+      if (launch) {
+        sessionStorage.setItem('epic_launch', launch);
+      }
+      if (isEHR) {
+        sessionStorage.setItem('epic_isEHR', isEHR);
+      }
+      
+      // If we have iss and launch but no code, redirect to launch.html to start OAuth
+      // This handles the initial EHR launch before React components load
+      if (iss && launch && !code) {
+        // Get SMART config from window._env_ (loaded by config.js)
+        const clientId = (window._env_ && window._env_.REACT_APP_SMART_CLIENT_ID) || '';
+        let redirectUri = (window._env_ && window._env_.REACT_APP_SMART_REDIRECT_URI) || '';
+        const scope = (window._env_ && window._env_.REACT_APP_SMART_SCOPE) || 'launch launch/patient patient/*.read';
+        
+        // If no redirect URI is configured, or if current path is /form (listing page),
+        // use the current path as redirect URI
+        const currentPath = window.location.pathname;
+        if (!redirectUri || currentPath === '/form' || currentPath === '/public/form') {
+          // Use current path as redirect URI
+          redirectUri = window.location.origin + currentPath;
+        }
+        
+        // Extract formId from redirect URI and store it (only if redirectUri has a formId)
+        // Don't store formId if redirectUri is just /form (listing page)
+        const redirectPath = new URL(redirectUri).pathname;
+        const formIdMatch = redirectPath.match(/\/(?:public\/)?form\/([^\/]+)/);
+        if (formIdMatch && redirectPath !== '/form' && redirectPath !== '/public/form') {
+          sessionStorage.setItem('epic_formId', formIdMatch[1]);
+        } else {
+          // Clear any previously stored formId if we're going to listing page
+          sessionStorage.removeItem('epic_formId');
+        }
+        
+        // Build launch.html URL with all necessary parameters
+        const encodedIss = encodeURIComponent(iss);
+        const encodedLaunch = encodeURIComponent(launch);
+        let launchUrl = `/launch.html?iss=${encodedIss}&launch=${encodedLaunch}`;
+        
+        // Pass config as URL parameters so launch.html can use them
+        if (clientId) {
+          launchUrl += `&clientId=${encodeURIComponent(clientId)}`;
+        }
+        if (redirectUri) {
+          launchUrl += `&redirectUri=${encodeURIComponent(redirectUri)}`;
+        }
+        if (scope) {
+          launchUrl += `&scope=${encodeURIComponent(scope)}`;
+        }
+        
+        // Preserve isEHR and other query params (but avoid duplicating iss/launch)
+        const currentSearch = window.location.search;
+        if (currentSearch) {
+          const params = new URLSearchParams(currentSearch);
+          params.delete('iss');
+          params.delete('launch');
+          const remainingParams = params.toString();
+          if (remainingParams) {
+            launchUrl += `&${remainingParams}`;
+          }
+        }
+        
+        // Redirect to launch.html
+        window.location.href = launchUrl;
+        return; // Exit early, redirect will happen
+      }
+    })();
+  </script>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@bpmn-io/properties-panel/dist/assets/properties-panel.min.css">
 
   <!-- required dmn modeler styles -->
@@ -16,10 +133,13 @@
   <link rel="stylesheet" href="https://unpkg.com/dmn-js@16.8.0/dist/assets/dmn-js-decision-table-controls.css">
   <link rel="stylesheet" href="https://unpkg.com/dmn-js@16.8.0/dist/assets/dmn-js-literal-expression.css">
   <link rel="stylesheet" href="https://unpkg.com/dmn-js@16.8.0/dist/assets/dmn-font/css/dmn.css">
-  <link rel="stylesheet" href="https://forms-flow-microfrontends.aot-technologies.com/forms-flow-theme@v7.3.0/forms-flow-theme.min.css">
+  <link rel="stylesheet"
+    href="https://forms-flow-microfrontends.aot-technologies.com/forms-flow-theme@v8.1.0-alpha/forms-flow-theme.min.css">
 
   <!-- required styles from cdn -->
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Nunito+Sans:wght@400;600;700&display=swap">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Figtree:wght@300;400;500;600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/formiojs@4.13.1/dist/formio.full.min.css">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css" integrity="sha512-z3gLpd7yknf1YoNbCzqRKc4qyor8gaKU1qmn+CShxbuBusANI9QpRohGBreCFkKxLhei6S9CQXFEbbKuqLg0DA==" crossorigin="anonymous" referrerpolicy="no-referrer" />
  
@@ -92,7 +212,8 @@
               "@formsflow/task":"<%=process.env.MF_FORMSFLOW_REVIEW_URL %>",
               "@formsflow/submissions":"<%=process.env.MF_FORMSFLOW_SUBMISSIONS_URL %>",
               "@formsflow/service":"<%= process.env.MF_FORMSFLOW_SERVICE_URL %>",
-              "@formsflow/components":"<%= process.env.MF_FORMSFLOW_COMPONENTS_URL %>"
+              "@formsflow/components":"<%= process.env.MF_FORMSFLOW_COMPONENTS_URL %>",
+              "@formsflow/custom-services-UI":"<%= process.env.MF_FORMSFLOW_CUSTOM_SERVICES_UI_URL %>"
           }
         }
       </script>
@@ -122,6 +243,8 @@
   -->
   <!-- <script src="https://cdn.jsdelivr.net/npm/zone.js@0.11.3/dist/zone.min.js"></script> -->
 
+  <!-- Import Map Overrides - can override URLs from localStorage -->
+  <!-- To clear overrides: localStorage.removeItem('import-map-overrides') -->
   <script src="https://cdn.jsdelivr.net/npm/import-map-overrides@2.2.0/dist/import-map-overrides.js"></script>
   <% if (isLocal) { %>
   <script src="https://cdn.jsdelivr.net/npm/systemjs@6.8.3/dist/system.js"></script>

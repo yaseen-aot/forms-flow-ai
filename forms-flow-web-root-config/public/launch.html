@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SMART Launch</title>
+  <script src="https://cdn.jsdelivr.net/npm/fhirclient/build/fhir-client.js"></script>
+  <!-- Load config.js to get environment variables -->
+  <script src="/config/config.js"></script>
+</head>
+<body>
+  <div style="display: flex; justify-content: center; align-items: center; height: 100vh;">
+    <div>
+      <h2>Launching SMART App...</h2>
+      <p>Please wait while we authenticate with the EHR system.</p>
+    </div>
+  </div>
+  <script>
+    (function() {
+      // Get configuration from environment, URL params, or use defaults
+      const getConfig = () => {
+        const urlParams = new URLSearchParams(window.location.search);
+        
+        // Try to get from URL parameters first (passed from the app)
+        let clientId = urlParams.get('clientId');
+        let redirectUri = urlParams.get('redirectUri');
+        let scope = urlParams.get('scope');
+        
+        // Fall back to window._env_ (set by config.js)
+        if (!clientId && window._env_ && window._env_.REACT_APP_SMART_CLIENT_ID) {
+          clientId = window._env_.REACT_APP_SMART_CLIENT_ID;
+        }
+        if (!redirectUri && window._env_ && window._env_.REACT_APP_SMART_REDIRECT_URI) {
+          redirectUri = window._env_.REACT_APP_SMART_REDIRECT_URI;
+        }
+        if (!scope && window._env_ && window._env_.REACT_APP_SMART_SCOPE) {
+          scope = window._env_.REACT_APP_SMART_SCOPE;
+        }
+        
+        // Final fallbacks
+        if (!clientId) {
+          console.warn('SMART Client ID not configured. Please set REACT_APP_SMART_CLIENT_ID.');
+          clientId = 'YOUR_CLIENT_ID';
+        }
+        if (!redirectUri) {
+          // Try to reconstruct from current URL or redirectUri param
+          const currentPath = window.location.pathname;
+          if (currentPath.includes('/public/form/')) {
+            const formIdMatch = currentPath.match(/\/public\/form\/([^\/]+)/);
+            if (formIdMatch) {
+              redirectUri = window.location.origin + `/public/form/${formIdMatch[1]}`;
+            } else {
+              redirectUri = window.location.origin + '/public/form';
+            }
+          } else {
+            redirectUri = window.location.origin + window.location.pathname.replace('/launch.html', '');
+          }
+        }
+        if (!scope) {
+          scope = 'patient/*.read launch launch/patient';
+        }
+        
+        return { clientId, redirectUri, scope };
+      };
+      
+      const config = getConfig();
+      
+      // Check if we're in a SMART launch context
+      const urlParams = new URLSearchParams(window.location.search);
+      const iss = urlParams.get('iss');
+      const launch = urlParams.get('launch');
+      const code = urlParams.get('code'); // OAuth authorization code
+      const state = urlParams.get('state'); // OAuth state
+      
+      // Store iss and code in sessionStorage if present (for use by the React app)
+      if (iss) {
+        sessionStorage.setItem('epic_iss', iss);
+      }
+      if (code) {
+        sessionStorage.setItem('epic_code', code);
+      }
+      if (state) {
+        sessionStorage.setItem('epic_state', state);
+      }
+      
+      if (iss && launch) {
+        // EHR launch - use the launch parameters
+        // Store iss and launch in sessionStorage for the main app to use after OAuth redirect
+        sessionStorage.setItem('epic_iss', iss);
+        sessionStorage.setItem('epic_launch', launch);
+        
+        // Get the formId from the redirect URI if present
+        const redirectPath = new URL(config.redirectUri).pathname;
+        const formIdMatch = redirectPath.match(/\/public\/form\/([^\/]+)/);
+        if (formIdMatch) {
+          sessionStorage.setItem('epic_formId', formIdMatch[1]);
+        }
+        
+        // Preserve isEHR parameter
+        const isEHR = urlParams.get('isEHR');
+        if (isEHR) {
+          sessionStorage.setItem('epic_isEHR', isEHR);
+        }
+        
+        // Build redirect URI with preserved parameters
+        let finalRedirectUri = config.redirectUri;
+        if (formIdMatch) {
+          finalRedirectUri = `${window.location.origin}/public/form/${formIdMatch[1]}`;
+        }
+        
+        // Always add isEHR parameter to redirect URI so form knows to fetch patient data
+        const redirectUrl = new URL(finalRedirectUri);
+        redirectUrl.searchParams.set('isEHR', 'true');
+        finalRedirectUri = redirectUrl.toString();
+        
+        // Launch SMART OAuth flow
+        
+        FHIR.oauth2.authorize({
+          client_id: config.clientId,
+          scope: config.scope,
+          redirect_uri: finalRedirectUri,
+          iss: iss,
+          launch: launch
+        });
+      } else {
+        // No launch parameters - redirect to main app
+        // Use the configured redirectUri, don't override with stored formId
+        // The redirectUri should be what was registered in SMART Health IT
+        let redirectUrl = config.redirectUri;
+        
+        // Only use stored formId if redirectUri doesn't already specify a form
+        const redirectPath = new URL(redirectUrl).pathname;
+        const hasFormIdInUri = redirectPath.match(/\/(?:public\/)?form\/([^\/]+)/);
+        
+        if (!hasFormIdInUri) {
+          // RedirectUri doesn't have a formId, check if we should use stored one
+          const formId = sessionStorage.getItem('epic_formId');
+          if (formId) {
+            // Check if redirectUri is /form or /public/form (listing pages)
+            if (redirectPath === '/form' || redirectPath === '/public/form') {
+              // User wants listing page, don't override with formId
+              redirectUrl = redirectUrl;
+            } else {
+              // Use stored formId
+              redirectUrl = `${window.location.origin}/public/form/${formId}`;
+            }
+          }
+        }
+        
+        // Add isEHR parameter if present
+        const isEHR = sessionStorage.getItem('epic_isEHR');
+        if (isEHR) {
+          const url = new URL(redirectUrl);
+          url.searchParams.set('isEHR', isEHR);
+          redirectUrl = url.toString();
+        }
+        
+        window.location.href = redirectUrl;
+      }
+    })();
+  </script>
+</body>
+</html>
+

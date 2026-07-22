@@ -1,7 +1,7 @@
 <single-spa-router>
 
-  <main>
-    <nav>
+  <main class="base-container">
+    <nav class="nav-space">
       <application name="@formsflow/nav"></application>
     </nav>
     <route default>
@@ -15,6 +15,9 @@
     </route>
     <route path="submissions">
       <application name="@formsflow/submissions"></application>
+    </route>
+    <route path="custom-services">
+      <application name="@formsflow/custom-services-UI"></application>
     </route>
   </main>
 </single-spa-router>

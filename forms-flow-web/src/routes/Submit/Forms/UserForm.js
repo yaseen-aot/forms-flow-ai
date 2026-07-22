@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { push } from "connected-react-router";
 import { connect, useDispatch, useSelector } from "react-redux";
 import {
@@ -29,7 +29,6 @@ import {
   setMaintainBPMFormPagination,
   setFormSubmitted,
 } from "../../../actions/formActions";
-import SubmissionError from "../../../containers/SubmissionError";
 import { publicApplicationStatus } from "../../../apiManager/services/applicationServices";
 import LoadingOverlay from "react-loading-overlay-ts";
 import { CUSTOM_EVENT_TYPE } from "../../../components/ServiceFlow/constants/customEventTypes";
@@ -58,14 +57,18 @@ import {
   getFormProcesses,
 } from "../../../apiManager/services/processServices";
 import { setFormStatusLoading } from "../../../actions/processActions";
-import { renderPage, textTruncate } from "../../../helper/helper";
+import { renderPage } from "../../../helper/helper";
 import PropTypes from "prop-types";
 // import { Card } from "react-bootstrap";
-import { BackToPrevIcon } from "@formsflow/components";
-import { navigateToFormEntries } from "../../../helper/routerHelper";
+import { BreadCrumbs, BreadcrumbVariant } from "@formsflow/components";
+import { navigateToFormEntries, navigateToSubmitFormsListing } from "../../../helper/routerHelper";
 import { cloneDeep } from "lodash";
-import { HelperServices } from "@formsflow/service";
 import { useParams } from "react-router-dom";
+// EHR Integration - conditionally imported based on feature flag
+import { 
+  isEhrEnabled, 
+  useEhrPatientData
+} from "../../../integrations/ehr";
 
 const View = React.memo((props) => {
   const [formStatus, setFormStatus] = React.useState("");
@@ -78,6 +81,8 @@ const View = React.memo((props) => {
   const lang = useSelector((state) => state.user.lang);
   const pubSub = useSelector((state) => state.pubSub);
   const isPublic = !props.isAuthenticated;
+  const [ehrSubmission, setEhrSubmission] = useState(null);
+  const [ehrError, setEhrError] = useState(null);
   const tenantKey = useSelector((state) => state.tenants?.tenantId);
   const redirectUrl = MULTITENANCY_ENABLED ? `/tenant/${tenantKey}/` : "/";
   const draftSubmission = useSelector((state) => state.draft.draftSubmission || {});
@@ -90,8 +95,6 @@ const View = React.memo((props) => {
   } = useSelector((state) => state.formDelete) || {};
 
   const draftSubmissionId = draftSubmission?.applicationId || draftId;
-  //modified date
-  const draftModified = useSelector((state) => state.draft.draftModified?.modified);
 
   // Holds the latest data saved by the server
   const { formStatusLoading, processLoadError } =
@@ -114,6 +117,8 @@ const View = React.memo((props) => {
   const formRef = useRef(isDraftEdit ? { data: cloneDeep(draftSubmission?.data) } : {});
   const [isDraftCreated, setIsDraftCreated] = useState(isDraftEdit);
   const [validFormId, setValidFormId] = useState(undefined);
+  // EHR submission data - simple structure like FormPreview.js
+  // Just holds { data: mappedPatientData } when EHR data is fetched
 
   const [showPublicForm, setShowPublicForm] = useState("checking");
   const [poll, setPoll] = useState(DRAFT_ENABLED);
@@ -138,10 +143,6 @@ const View = React.memo((props) => {
   */
   const draftCreateMethod = isAuthenticated ? draftCreate : publicDraftCreate;
   const draftUpdateMethod = isAuthenticated ? draftUpdate : publicDraftUpdate;
-  let scrollableOverview = "user-form-container";
-  if (form?.display === "wizard") {
-    scrollableOverview =  "user-form-container-with-wizard";
-  }
 
   const getPublicForm = useCallback(
     (form_id, isObjectId, formObj) => {
@@ -300,73 +301,80 @@ const View = React.memo((props) => {
     }
   }, [form, pubSub.publish]);
 
+  // EHR Integration: Use hook to fetch patient data
+  const { mappedData: ehrData, error: ehrErrorMsg } = useEhrPatientData({ 
+    form, 
+    autoFetch: !isDraftEdit 
+  });
+
+  // Sync EHR error to local state
+  useEffect(() => {
+    setEhrError(ehrErrorMsg);
+  }, [ehrErrorMsg]);
+
+  // Sync EHR data to submission state
+  useEffect(() => {
+    if (ehrData) {
+      setEhrSubmission({ data: ehrData });
+    }
+  }, [ehrData]);
+
   // will be updated once application/draft listing page is ready
   const handleBack = () => {
     navigateToFormEntries(dispatch, tenantKey, parentFormId || formId);
 
   };
 
-  const renderModifiedDate = () => {
-    if (draftModified && !isPublic) {
-      return (
-        <>
-          <span className="status-draft"></span> {t("Last modified on:")}{" "}
-          {HelperServices.getLocalDateAndTime(draftModified)}
-        </>
-      );
-    } else {
-      return (
-        <>
-          <span className="status-new"></span> {t("New Submission")}
-        </>
-      );
-    }
+  const redirectBackToForm = () => {
+    navigateToSubmitFormsListing(dispatch, tenantKey);
   };
 
-  const renderHeader = () => (
-    <div className="nav-bar">
-        <SubmissionError
-          modalOpen={props.submissionError.modalOpen}
-          message={props.submissionError.message}
-          onConfirm={props.onConfirm}
-        ></SubmissionError>
-        
-        { !isPublic && 
-        <div className="icon-back" onClick={handleBack}>
-          <BackToPrevIcon data-testid="back-to-form-list" ariaLabel="Back to Form List" />
-        </div>
-        }
+  const breadcrumbItems = [
+    { id:"submit", label: t("Submit")},
+    { id:"form-title", label: form.title}
+  ];
 
-        <div className="description">
-          <p className="text-main">
-            {textTruncate(100, 97, form.title)}
-          </p>
+  const handleBreadcrumbClick = (item) => {
+  if (item.id === "submit") {
+      redirectBackToForm();
+  }else if (item.id === "form-title") {
+      handleBack();
+  }
+  };
 
-          <p className="status" data-testid={`form-status-${form._id}`}>
-            {renderModifiedDate()}
-          </p>
-        </div>
-
-        {/* <div className="d-flex justify-content-between align-items-center">
-          <div className="icon-title-container">
-            {!isPublic && <BackToPrevIcon
-              title={t("Back to Form List")}
-              data-testid="back-to-form-list"
-              onClick={handleBack}
-            />}
-            <div className="user-form-header-text">
-              {textTruncate(100, 97, form.title)}
-            </div>
-          </div>
-
-          <div className="d-flex align-items-center">
-            <span className="form-modified-date me-3">
-              {renderModifiedDate()}
-            </span>
-          </div>
-        </div> */}
-    </div>
-  );
+  // Filter submission to ensure no objects are passed to Form.io.
+  // Memoized so the reference is stable across unrelated re-renders -
+  // otherwise Form.io's isEqual guard on its submission-update effect
+  // never matches (this filtered subset vs. its own full live data),
+  // causing it to reassign `submission` on every render in a feedback loop.
+  const formioSubmission = useMemo(() => {
+    const sub = ehrSubmission || submission;
+    if (!sub || !sub.data) return sub;
+    const deepFilter = (obj) => {
+      if (obj === null || obj === undefined) return obj;
+      if (typeof obj === 'object') {
+        const result = {};
+        Object.keys(obj).forEach(k => {
+          const val = obj[k];
+          if (val !== null && val !== undefined) {
+            if (typeof val === 'object') {
+              result[k] = deepFilter(val);
+            } else if (typeof val === 'string') {
+              result[k] = val;
+            } else if (
+              typeof val === 'number' ||
+              typeof val === 'boolean'
+            ) {
+              result[k] = String(val);
+            }
+          }
+        });
+        return result;
+      }
+      return typeof obj === 'string' ? obj : String(obj);
+    };
+    return { ...sub, data: deepFilter(sub.data) };
+  }, [ehrSubmission, submission]);
 
   if (isActive || isPublicStatusLoading || formStatusLoading) {
     return (
@@ -394,8 +402,20 @@ const View = React.memo((props) => {
   }
 
   return (
-    <div className="userform-wrapper">
-      {renderHeader()}
+    <>
+        <div className="header-section-1">
+            <div className="section-seperation-left d-block">
+                <BreadCrumbs 
+                  items={breadcrumbItems}
+                  variant={BreadcrumbVariant.MINIMIZED}
+                  underline 
+                  onBreadcrumbClick={handleBreadcrumbClick}
+                /> 
+                <h4>{draftSubmission?.isDraft ? draftId : t("New Submission")}</h4>
+            </div>
+
+        </div>
+
       <Errors errors={errors} />
       <LoadingOverlay
         active={isFormSubmissionLoading}
@@ -403,11 +423,18 @@ const View = React.memo((props) => {
         text={<Translation>{(t) => t("Loading...")}</Translation>}
         className="col-12"
       >
-        <div className={`wizard-tab ${scrollableOverview}`}>
+        <div className="body-section px-1">
+          {isEhrEnabled() && ehrError && (
+            <div className="alert alert-warning mb-3" role="alert">
+              <strong>EHR Integration Warning:</strong> {ehrError}
+              <br />
+              <small>The form will be displayed without pre-filled patient data.</small>
+            </div>
+          )}
           {(isPublic || formStatus === "active") ? (
             <Form
               form={form}
-              submission={isDraftEdit ? draftData : submission}
+              submission={formioSubmission}
               url={url}
               options={{
                 ...options,
@@ -416,11 +443,15 @@ const View = React.memo((props) => {
                 buttonSettings: { showCancel: false },
               }}
               onChange={() => {
-                if (formRef.current?.data) {
-                  setDraftData({ data: formRef.current?.data });
+                // Update draftData for auto-save functionality only if form data has actually changed
+                const currentData = formRef.current?.data;
+                if (currentData && !isEqual(draftData?.data, currentData)) {
+                  setDraftData({ data: currentData });
                 }
               }}
-              formReady={(e) => formRef.current = e}
+              formReady={(formInstance) => {
+                formRef.current = formInstance;
+              }}
               onSubmit={(data) => {
                 setPoll(false);
                 exitType.current = "SUBMIT";
@@ -433,7 +464,7 @@ const View = React.memo((props) => {
           )}
         </div>
       </LoadingOverlay>
-    </div>
+      </>
   );
 });
 
@@ -560,5 +591,6 @@ const mapDispatchToProps = (dispatch, ownProps) => {
     },
   };
 };
+
 
 export default connect(mapStateToProps, mapDispatchToProps)(View);

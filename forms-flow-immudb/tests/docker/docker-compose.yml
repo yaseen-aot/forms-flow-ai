@@ -1,0 +1,62 @@
+version: '3.7'
+
+# Docker Compose configuration for running tests
+# Usage: docker-compose -f tests/docker/docker-compose.yml up --build
+
+services:
+  # ImmuDB Database for testing
+  immudb-test:
+    image: codenotary/immudb:latest
+    restart: unless-stopped
+    ports:
+      - '3323:3322'   # Use different port for testing
+    environment:
+      IMMUDB_ADDRESS: "0.0.0.0"
+      IMMUDB_PORT: 3322
+      IMMUDB_ADMIN_PASSWORD: immudb
+    networks:
+      - forms-flow-immudb-test-network
+    healthcheck:
+      test: ["CMD", "immuadmin", "status"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+
+  # Forms Flow ImmuDB Worker Service for testing
+  forms-flow-immudb-test:
+    build:
+      context: ../../
+      dockerfile: Dockerfile
+    depends_on:
+      immudb-test:
+        condition: service_healthy
+    ports:
+      - '5002:5001'
+    environment:
+      # Flask Configuration
+      SECRET_KEY: test-secret-key
+      DEBUG: true
+      HOST: 0.0.0.0
+      PORT: 5001
+      FLASK_ENV: testing
+
+      # ImmuDB Configuration
+      IMMUDB_ENABLED: true
+      IMMUDB_HOST: immudb-test:3322
+      IMMUDB_USER: immudb
+      IMMUDB_PASS: immudb
+
+      # API Configuration
+      API_PREFIX: /api/v1
+      CORS_ORIGINS: '*'
+
+      # Logging Configuration
+      LOG_LEVEL: DEBUG
+
+    networks:
+      - forms-flow-immudb-test-network
+
+networks:
+  forms-flow-immudb-test-network:
+    driver: 'bridge'

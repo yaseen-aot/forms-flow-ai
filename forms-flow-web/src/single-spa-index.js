@@ -8,6 +8,7 @@ import { FlagsProvider } from "flagged";
 import { Formio, Components } from "@aot-technologies/formio-react";
 import { AppConfig } from "./config";
 import "./resourceBundles/i18n.js";
+import "./integrations/ehr/epicConsent";
 
 if (typeof window.__REACT_DEVTOOLS_GLOBAL_HOOK__ === "object") {
   for (let [key, value] of Object.entries(
@@ -19,6 +20,33 @@ if (typeof window.__REACT_DEVTOOLS_GLOBAL_HOOK__ === "object") {
 }
 Formio.setProjectUrl(AppConfig.projectUrl);
 Formio.setBaseUrl(AppConfig.apiUrl);
+
+// Make UserDetails available to Form.io custom condition evaluations
+// This allows customConditional scripts to access UserDetails
+if (typeof window !== 'undefined') {
+  try {
+    const userDetailsStr = localStorage.getItem('UserDetails');
+    if (userDetailsStr) {
+      window.UserDetails = JSON.parse(userDetailsStr);
+    }
+    
+    // Update UserDetails when localStorage changes
+    const originalSetItem = Storage.prototype.setItem;
+    Storage.prototype.setItem = function(key, value) {
+      originalSetItem.apply(this, arguments);
+      if (key === 'UserDetails') {
+        try {
+          window.UserDetails = value ? JSON.parse(value) : null;
+        } catch (e) {
+          window.UserDetails = null;
+        }
+      }
+    };
+  } catch (e) {
+    console.warn('Failed to initialize UserDetails for Form.io:', e);
+    window.UserDetails = null;
+  }
+}
 
 // Set custom formio elements - Code splitted
 import(
