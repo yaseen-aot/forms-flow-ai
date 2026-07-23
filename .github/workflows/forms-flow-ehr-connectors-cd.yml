@@ -128,22 +128,23 @@ jobs:
         run: |
           kubectl config current-context
           kubectl get ns
+          echo "=== Deployments ==="
           kubectl get deployments -n ${{ secrets.QA_OPENSOURCE_NAMESPACE }} || echo "failed listing"
+          echo "=== StatefulSets ==="
+          kubectl get statefulsets -n ${{ secrets.QA_OPENSOURCE_NAMESPACE }} || echo "failed listing"
+          echo "=== BPM Init Containers ==="
+          kubectl get deployment forms-flow-bpm -n ${{ secrets.QA_OPENSOURCE_NAMESPACE }} -o jsonpath='{.spec.template.spec.initContainers[*].name}' || echo "failed listing"
 
       - name: Deploy EHR Connectors to EKS
         run: |
           if [ "${{ needs.build-and-push.outputs.connectors }}" = "true" ]; then
-            echo "Deploying updated EHR Connectors..."
-            kubectl -n ${{ secrets.QA_OPENSOURCE_NAMESPACE }} patch deployment forms-flow-ehr-connectors -p '{"spec":{"template":{"spec":{"containers":[{"name":"forms-flow-ehr-connectors","image":"docker.io/formsflow/forms-flow-ehr-connectors:${{ env.VERSION }}"}]}}}}' || echo "skip"
-            kubectl -n ${{ secrets.QA_OPENSOURCE_NAMESPACE }} patch deployment forms-flow-jwks-server -p '{"spec":{"template":{"spec":{"containers":[{"name":"forms-flow-jwks-server","image":"docker.io/formsflow/forms-flow-ehr-connectors:${{ env.VERSION }}"}]}}}}' || echo "skip"
-            
-            kubectl rollout restart deployment forms-flow-ehr-connectors -n ${{ secrets.QA_OPENSOURCE_NAMESPACE }} || echo "restart skipped"
-            kubectl rollout restart deployment forms-flow-jwks-server -n ${{ secrets.QA_OPENSOURCE_NAMESPACE }} || echo "restart skipped"
+            echo "Deploying updated EHR Connectors (StatefulSet)..."
+            kubectl -n ${{ secrets.QA_OPENSOURCE_NAMESPACE }} patch statefulset ehr-connector -p '{"spec":{"template":{"spec":{"containers":[{"name":"ehr-connector","image":"docker.io/formsflow/forms-flow-ehr-connectors:${{ env.VERSION }}"}]}}}}' || echo "skip"
+            kubectl rollout restart statefulset ehr-connector -n ${{ secrets.QA_OPENSOURCE_NAMESPACE }} || echo "restart skipped"
           fi
           
           if [ "${{ needs.build-and-push.outputs.immudb }}" = "true" ]; then
-            echo "Deploying updated ImmuDB Audit Plugin..."
-            kubectl -n ${{ secrets.QA_OPENSOURCE_NAMESPACE }} patch deployment forms-flow-immudb-plugin -p '{"spec":{"template":{"spec":{"containers":[{"name":"forms-flow-immudb-plugin","image":"docker.io/formsflow/forms-flow-immudb-plugin:${{ env.VERSION }}"}]}}}}' || echo "skip"
-            
-            kubectl rollout restart deployment forms-flow-immudb-plugin -n ${{ secrets.QA_OPENSOURCE_NAMESPACE }} || echo "restart skipped"
+            echo "Deploying updated ImmuDB Audit Plugin (BPM initContainer)..."
+            kubectl -n ${{ secrets.QA_OPENSOURCE_NAMESPACE }} patch deployment forms-flow-bpm -p '{"spec":{"template":{"spec":{"initContainers":[{"name":"immudb-audit-plugin","image":"docker.io/formsflow/forms-flow-immudb-plugin:${{ env.VERSION }}"}]}}}}' || echo "skip"
+            kubectl rollout restart deployment forms-flow-bpm -n ${{ secrets.QA_OPENSOURCE_NAMESPACE }} || echo "restart skipped"
           fi
