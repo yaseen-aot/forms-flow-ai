@@ -115,17 +115,29 @@ jobs:
           chmod +x kubectl
           sudo mv kubectl /usr/local/bin/
 
+      - name: Verify AWS identity
+        run: aws sts get-caller-identity
+
+      - name: Verify EKS token
+        run: aws eks get-token --cluster-name ${{ secrets.QA_EKS_CLUSTER }}
+
       - name: Update Kube config
         run: aws eks update-kubeconfig --region ca-central-1 --name ${{ secrets.QA_EKS_CLUSTER }}
+
+      - name: Verify kubectl and deployments
+        run: |
+          kubectl config current-context
+          kubectl get ns
+          kubectl get deployments -n ${{ secrets.QA_OPENSOURCE_NAMESPACE }} || echo "failed listing"
 
       - name: Deploy EHR Connectors to EKS
         run: |
           if [ "${{ needs.build-and-push.outputs.connectors }}" = "true" ]; then
             echo "Deploying updated EHR Connectors..."
-            kubectl -n ${{ secrets.QA_OPENSOURCE_NAMESPACE }} patch deployment forms-flow-ehr-connector -p '{"spec":{"template":{"spec":{"containers":[{"name":"forms-flow-ehr-connector","image":"docker.io/formsflow/forms-flow-ehr-connectors:${{ env.VERSION }}"}]}}}}' || echo "skip"
+            kubectl -n ${{ secrets.QA_OPENSOURCE_NAMESPACE }} patch deployment forms-flow-ehr-connectors -p '{"spec":{"template":{"spec":{"containers":[{"name":"forms-flow-ehr-connectors","image":"docker.io/formsflow/forms-flow-ehr-connectors:${{ env.VERSION }}"}]}}}}' || echo "skip"
             kubectl -n ${{ secrets.QA_OPENSOURCE_NAMESPACE }} patch deployment forms-flow-jwks-server -p '{"spec":{"template":{"spec":{"containers":[{"name":"forms-flow-jwks-server","image":"docker.io/formsflow/forms-flow-ehr-connectors:${{ env.VERSION }}"}]}}}}' || echo "skip"
             
-            kubectl rollout restart deployment forms-flow-ehr-connector -n ${{ secrets.QA_OPENSOURCE_NAMESPACE }} || echo "restart skipped"
+            kubectl rollout restart deployment forms-flow-ehr-connectors -n ${{ secrets.QA_OPENSOURCE_NAMESPACE }} || echo "restart skipped"
             kubectl rollout restart deployment forms-flow-jwks-server -n ${{ secrets.QA_OPENSOURCE_NAMESPACE }} || echo "restart skipped"
           fi
           
